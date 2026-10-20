@@ -1,1 +1,4 @@
 target/
+*.sav
+boot-roms/
+roms-local/

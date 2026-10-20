@@ -51,11 +51,26 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
+    /// Default machine: synthesized post-boot state, no boot ROM.
     pub fn new(rom: &[u8]) -> Self {
         let cart = Cartridge::from_rom(rom);
         GameBoy {
             cpu: Cpu::new_post_boot(),
             bus: Bus::new(cart),
+        }
+    }
+
+    /// With a user-supplied boot ROM: the CPU starts at 0 with the boot ROM
+    /// mapped; the boot ROM unmaps itself via FF50. Without one, synthesized
+    /// post-boot state (no Nintendo code in the repo).
+    pub fn with_boot_rom(rom: &[u8], boot_rom: Option<Vec<u8>>) -> Self {
+        let cart = Cartridge::from_rom(rom);
+        match boot_rom {
+            Some(boot) => GameBoy {
+                cpu: Cpu::new_boot_rom(),
+                bus: Bus::with_boot_rom(cart, Some(boot)),
+            },
+            None => GameBoy::new(rom),
         }
     }
 

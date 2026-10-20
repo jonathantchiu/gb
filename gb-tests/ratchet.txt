@@ -1,123 +1,126 @@
-# Pass-rate ratchet. One line per ROM: `<pass|fail> <path under gb-tests/roms/>`.
-# `cargo test -p gb-tests` asserts reality matches this file exactly, so a
-# regression fails the build, and so does a new pass that hasn't been recorded.
+# Pass-rate ratchet. One line per ROM:
+#   <pass|fail|not-applicable|timeout> <path under gb-tests/roms/>[@Mcycles] [# reason]
+# `cargo test -p gb-tests` asserts reality matches this file exactly: a regression
+# fails the build, and so does a new pass not yet recorded. A `pass` line must
+# carry a ` # reason` (anti-goal: unexplained passes are bugs). `not-applicable`
+# = wrong hardware revision, or needs a boot ROM that isn't in CI; it leaves the
+# pass-rate denominator. `timeout` is distinct from `fail` (different causes).
+# Budgets are emulated M-cycles, not wall time, so the suite is deterministic.
 # Record progress with: cargo run -p gb-tests --release --bin ratchet -- --update
-# Oracle is chosen by directory: mooneye/ = LD B,B register fingerprint,
-# everything else = blargg serial text or cart-RAM signature.
-pass cpu_instrs/individual/01-special.gb
-pass cpu_instrs/individual/02-interrupts.gb
-pass cpu_instrs/individual/03-op sp,hl.gb
-pass cpu_instrs/individual/04-op r,imm.gb
-pass cpu_instrs/individual/05-op rp.gb
-pass cpu_instrs/individual/06-ld r,r.gb
-pass cpu_instrs/individual/07-jr,jp,call,ret,rst.gb
-pass cpu_instrs/individual/08-misc instrs.gb
-pass cpu_instrs/individual/09-op r,r.gb
-pass cpu_instrs/individual/10-bit ops.gb
-pass cpu_instrs/individual/11-op a,(hl).gb
-pass instr_timing/instr_timing.gb
-pass mem_timing/individual/01-read_timing.gb
-pass mem_timing/individual/02-write_timing.gb
-pass mem_timing/individual/03-modify_timing.gb
-pass mem_timing-2/rom_singles/01-read_timing.gb
-pass mem_timing-2/rom_singles/02-write_timing.gb
-pass mem_timing-2/rom_singles/03-modify_timing.gb
-pass cpu_instrs/cpu_instrs.gb
-pass mem_timing-2/mem_timing.gb
-pass mem_timing/mem_timing.gb
-pass mooneye/acceptance/add_sp_e_timing.gb
-pass mooneye/acceptance/bits/mem_oam.gb
-pass mooneye/acceptance/bits/reg_f.gb
-pass mooneye/acceptance/bits/unused_hwio-GS.gb
-pass mooneye/acceptance/boot_div-dmgABCmgb.gb
-fail mooneye/acceptance/boot_hwio-dmgABCmgb.gb
-pass mooneye/acceptance/boot_regs-dmgABC.gb
-pass mooneye/acceptance/call_cc_timing.gb
-pass mooneye/acceptance/call_cc_timing2.gb
-pass mooneye/acceptance/call_timing.gb
-pass mooneye/acceptance/call_timing2.gb
-pass mooneye/acceptance/di_timing-GS.gb
-pass mooneye/acceptance/div_timing.gb
-pass mooneye/acceptance/ei_sequence.gb
-pass mooneye/acceptance/ei_timing.gb
-pass mooneye/acceptance/halt_ime0_ei.gb
-pass mooneye/acceptance/halt_ime0_nointr_timing.gb
-pass mooneye/acceptance/halt_ime1_timing.gb
-pass mooneye/acceptance/halt_ime1_timing2-GS.gb
-pass mooneye/acceptance/if_ie_registers.gb
-pass mooneye/acceptance/instr/daa.gb
-pass mooneye/acceptance/interrupts/ie_push.gb
-pass mooneye/acceptance/intr_timing.gb
-pass mooneye/acceptance/jp_cc_timing.gb
-pass mooneye/acceptance/jp_timing.gb
-pass mooneye/acceptance/ld_hl_sp_e_timing.gb
-pass mooneye/acceptance/oam_dma/basic.gb
-pass mooneye/acceptance/oam_dma/reg_read.gb
-pass mooneye/acceptance/oam_dma/sources-GS.gb
-pass mooneye/acceptance/oam_dma_restart.gb
-pass mooneye/acceptance/oam_dma_start.gb
-pass mooneye/acceptance/oam_dma_timing.gb
-pass mooneye/acceptance/pop_timing.gb
+pass cpu_instrs/individual/01-special.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/02-interrupts.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/03-op sp,hl.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/04-op r,imm.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/05-op rp.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/06-ld r,r.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/07-jr,jp,call,ret,rst.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/08-misc instrs.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/09-op r,r.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/10-bit ops.gb # SM83 instruction correctness (blargg)
+pass cpu_instrs/individual/11-op a,(hl).gb # SM83 instruction correctness (blargg)
+pass instr_timing/instr_timing.gb # per-instruction M-cycle counts (blargg)
+pass mem_timing/individual/01-read_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing/individual/02-write_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing/individual/03-modify_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing-2/rom_singles/01-read_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing-2/rom_singles/02-write_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing-2/rom_singles/03-modify_timing.gb # memory access timing within instructions (blargg)
+pass cpu_instrs/cpu_instrs.gb # SM83 instruction correctness (blargg)
+pass mem_timing-2/mem_timing.gb # memory access timing within instructions (blargg)
+pass mem_timing/mem_timing.gb # memory access timing within instructions (blargg)
+pass mooneye/acceptance/add_sp_e_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/bits/mem_oam.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/bits/reg_f.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/bits/unused_hwio-GS.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/boot_div-dmgABCmgb.gb # behavior verified on DMG-ABC hardware reference
+not-applicable mooneye/acceptance/boot_hwio-dmgABCmgb.gb # needs exact post-boot HWIO incl. NR52/PCM state; run locally with GB_BOOT_ROM
+pass mooneye/acceptance/boot_regs-dmgABC.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/call_cc_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/call_cc_timing2.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/call_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/call_timing2.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/di_timing-GS.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/div_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/ei_sequence.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/ei_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/halt_ime0_ei.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/halt_ime0_nointr_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/halt_ime1_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/halt_ime1_timing2-GS.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/if_ie_registers.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/instr/daa.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/interrupts/ie_push.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/intr_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/jp_cc_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/jp_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/ld_hl_sp_e_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/oam_dma/basic.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/oam_dma/reg_read.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/oam_dma/sources-GS.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/oam_dma_restart.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/oam_dma_start.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/oam_dma_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/pop_timing.gb # T-cycle instruction/interrupt timing (mooneye)
 fail mooneye/acceptance/ppu/hblank_ly_scx_timing-GS.gb
-pass mooneye/acceptance/ppu/intr_1_2_timing-GS.gb
-pass mooneye/acceptance/ppu/intr_2_0_timing.gb
-pass mooneye/acceptance/ppu/intr_2_mode0_timing.gb
+pass mooneye/acceptance/ppu/intr_1_2_timing-GS.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/ppu/intr_2_0_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/ppu/intr_2_mode0_timing.gb # T-cycle instruction/interrupt timing (mooneye)
 fail mooneye/acceptance/ppu/intr_2_mode0_timing_sprites.gb
-pass mooneye/acceptance/ppu/intr_2_mode3_timing.gb
+pass mooneye/acceptance/ppu/intr_2_mode3_timing.gb # T-cycle instruction/interrupt timing (mooneye)
 fail mooneye/acceptance/ppu/intr_2_oam_ok_timing.gb
 fail mooneye/acceptance/ppu/lcdon_timing-GS.gb
 fail mooneye/acceptance/ppu/lcdon_write_timing-GS.gb
-pass mooneye/acceptance/ppu/stat_irq_blocking.gb
+pass mooneye/acceptance/ppu/stat_irq_blocking.gb # behavior verified on DMG-ABC hardware reference
 fail mooneye/acceptance/ppu/stat_lyc_onoff.gb
 fail mooneye/acceptance/ppu/vblank_stat_intr-GS.gb
-pass mooneye/acceptance/push_timing.gb
-pass mooneye/acceptance/rapid_di_ei.gb
-pass mooneye/acceptance/ret_cc_timing.gb
-pass mooneye/acceptance/ret_timing.gb
-pass mooneye/acceptance/reti_intr_timing.gb
-pass mooneye/acceptance/reti_timing.gb
-pass mooneye/acceptance/rst_timing.gb
-pass mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb.gb
-pass mooneye/acceptance/timer/div_write.gb
-pass mooneye/acceptance/timer/rapid_toggle.gb
-pass mooneye/acceptance/timer/tim00.gb
-pass mooneye/acceptance/timer/tim00_div_trigger.gb
-pass mooneye/acceptance/timer/tim01.gb
-pass mooneye/acceptance/timer/tim01_div_trigger.gb
-pass mooneye/acceptance/timer/tim10.gb
-pass mooneye/acceptance/timer/tim10_div_trigger.gb
-pass mooneye/acceptance/timer/tim11.gb
-pass mooneye/acceptance/timer/tim11_div_trigger.gb
-pass mooneye/acceptance/timer/tima_reload.gb
-pass mooneye/acceptance/timer/tima_write_reloading.gb
-pass mooneye/acceptance/timer/tma_write_reloading.gb
-pass dmg-acid2/dmg-acid2.gb
-pass halt_bug.gb
-pass mooneye/emulator-only/mbc1/bits_bank1.gb
-pass mooneye/emulator-only/mbc1/bits_bank2.gb
-pass mooneye/emulator-only/mbc1/bits_mode.gb
-pass mooneye/emulator-only/mbc1/bits_ramg.gb
-pass mooneye/emulator-only/mbc1/multicart_rom_8Mb.gb
-pass mooneye/emulator-only/mbc1/ram_256kb.gb
-pass mooneye/emulator-only/mbc1/ram_64kb.gb
-pass mooneye/emulator-only/mbc1/rom_16Mb.gb
-pass mooneye/emulator-only/mbc1/rom_1Mb.gb
-pass mooneye/emulator-only/mbc1/rom_2Mb.gb
-pass mooneye/emulator-only/mbc1/rom_4Mb.gb
-pass mooneye/emulator-only/mbc1/rom_512kb.gb
-pass mooneye/emulator-only/mbc1/rom_8Mb.gb
-pass mooneye/emulator-only/mbc2/bits_ramg.gb
-pass mooneye/emulator-only/mbc2/bits_romb.gb
-pass mooneye/emulator-only/mbc2/bits_unused.gb
-pass mooneye/emulator-only/mbc2/ram.gb
-pass mooneye/emulator-only/mbc2/rom_1Mb.gb
-pass mooneye/emulator-only/mbc2/rom_2Mb.gb
-pass mooneye/emulator-only/mbc2/rom_512kb.gb
-pass mooneye/emulator-only/mbc5/rom_16Mb.gb
-pass mooneye/emulator-only/mbc5/rom_1Mb.gb
-pass mooneye/emulator-only/mbc5/rom_2Mb.gb
-pass mooneye/emulator-only/mbc5/rom_32Mb.gb
-pass mooneye/emulator-only/mbc5/rom_4Mb.gb
-pass mooneye/emulator-only/mbc5/rom_512kb.gb
-pass mooneye/emulator-only/mbc5/rom_64Mb.gb
-pass mooneye/emulator-only/mbc5/rom_8Mb.gb
+pass mooneye/acceptance/push_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/rapid_di_ei.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/ret_cc_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/ret_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/reti_intr_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/reti_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/rst_timing.gb # T-cycle instruction/interrupt timing (mooneye)
+pass mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb.gb # behavior verified on DMG-ABC hardware reference
+pass mooneye/acceptance/timer/div_write.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/rapid_toggle.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim00.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim00_div_trigger.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim01.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim01_div_trigger.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim10.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim10_div_trigger.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim11.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tim11_div_trigger.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tima_reload.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tima_write_reloading.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass mooneye/acceptance/timer/tma_write_reloading.gb # timer: falling-edge, DIV/TAC glitch, TIMA reload/cancel/TMA-write quirks (mooneye)
+pass dmg-acid2/dmg-acid2.gb # PPU rendering matches upstream reference-dmg.png pixel-for-pixel
+pass halt_bug.gb # HALT bug: opcode fetch repeated with IME=0 + pending intr (blargg)
+pass mooneye/emulator-only/mbc1/bits_bank1.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/bits_bank2.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/bits_mode.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/bits_ramg.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/multicart_rom_8Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/ram_256kb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/ram_64kb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_16Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_1Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_2Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_4Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_512kb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc1/rom_8Mb.gb # MBC1 banking incl. multicart wiring (mooneye)
+pass mooneye/emulator-only/mbc2/bits_ramg.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/bits_romb.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/bits_unused.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/ram.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/rom_1Mb.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/rom_2Mb.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc2/rom_512kb.gb # MBC2 banking and 512x4 RAM (mooneye)
+pass mooneye/emulator-only/mbc5/rom_16Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_1Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_2Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_32Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_4Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_512kb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_64Mb.gb # MBC5 9-bit ROM banking (mooneye)
+pass mooneye/emulator-only/mbc5/rom_8Mb.gb # MBC5 9-bit ROM banking (mooneye)

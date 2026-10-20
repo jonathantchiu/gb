@@ -1,15 +1,28 @@
 //! One test per line of `ratchet.txt`. Each asserts the ROM's actual result
 //! matches the ratchet: a regression fails, and so does an unrecorded pass.
 
-use gb_tests::{expected_status, run_rom, Status};
+use gb_tests::{load_ratchet, run_rom_with_budget, Status};
+
+fn entry_for(rom: &str) -> gb_tests::RatchetEntry {
+    load_ratchet()
+        .into_iter()
+        .find(|e| e.rom == rom)
+        .unwrap_or_else(|| panic!("{rom} not in ratchet.txt"))
+}
 
 fn check(rom: &str) {
-    let expected = expected_status(rom);
-    let result = run_rom(rom);
+    let entry = entry_for(rom);
+    let expected = entry.expected;
+    if expected == Status::NotApplicable {
+        return; // wrong revision / needs a boot ROM not present in CI
+    }
+    let result = run_rom_with_budget(rom, entry.timeout_mcycles);
     if result.status != expected {
-        let hint = match result.status {
-            Status::Pass => "newly passing: flip it to `pass` in ratchet.txt",
-            Status::Fail => "REGRESSION",
+        let hint = match (expected, result.status) {
+            (_, Status::Pass) => "newly passing: flip to `pass` with a reason in ratchet.txt",
+            (Status::Pass, _) => "REGRESSION",
+            (_, Status::Timeout) => "timed out (raise @Mcycles or fix the hang)",
+            _ => "state mismatch",
         };
         panic!(
             "{rom}: ratchet={} actual={} ({hint})\n{}",

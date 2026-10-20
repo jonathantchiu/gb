@@ -4,6 +4,17 @@ use crate::ppu::Ppu;
 use crate::serial::Serial;
 use crate::timer::Timer;
 
+/// There are two clock domains. CPU, DIV/timer, and serial run at the CPU
+/// rate, which doubles in CGB double-speed mode. PPU, APU, and HDMA do not
+/// change. On a DMG machine (or CGB at single speed) the two domains advance
+/// together; a CGB at double speed advances the fast domain twice per base
+/// tick. See the design's "Two clock domains" section.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Speed {
+    Normal,
+    Double,
+}
+
 #[derive(Clone)]
 pub struct Bus {
     pub cart: Cartridge,
@@ -17,12 +28,30 @@ pub struct Bus {
     pub if_reg: u8,
     pub dma_reg: u8,
     pub mcycles: u64,
+    /// Current speed of the fast domain. DMG is always `Normal`.
+    pub speed: Speed,
+    /// KEY1 bit 0: set by the program, acted on by STOP.
+    pub prepare_speed_switch: bool,
+    /// Whether this machine can switch speed at all (CGB only).
+    pub double_speed_capable: bool,
+    /// Boot ROM overlay, mapped at 0000-00FF until FF50 is written.
+    boot_rom: Option<Vec<u8>>,
     dma_active: Option<(u8, u8)>,
     dma_pending: Option<(u8, u8)>,
 }
 
 impl Bus {
     pub fn new(cart: Cartridge) -> Self {
+        Self::with_boot_rom(cart, None)
+    }
+
+    pub fn with_boot_rom(cart: Cartridge, boot_rom: Option<Vec<u8>>) -> Self {
+        let mut bus = Bus::new_inner(cart);
+        bus.boot_rom = boot_rom;
+        bus
+    }
+
+    fn new_inner(cart: Cartridge) -> Self {
         Bus {
             cart,
             ppu: Ppu::new(),
@@ -35,6 +64,10 @@ impl Bus {
             if_reg: 0xE1,
             dma_reg: 0xFF,
             mcycles: 0,
+            speed: Speed::Normal,
+            prepare_speed_switch: false,
+            double_speed_capable: false,
+            boot_rom: None,
             dma_active: None,
             dma_pending: None,
         }
@@ -45,14 +78,44 @@ impl Bus {
         self.tick_tcycles();
     }
 
+    /// One M-cycle at the CPU's current rate. The fast domain (CPU/DIV/serial)
+    /// always advances 4 CPU-side T-cycles. The base domain (PPU/APU/HDMA/cart)
+    /// advances 4 base T-cycles at normal speed, 2 at double speed.
     fn tick_tcycles(&mut self) {
+        let base_ticks = if self.speed == Speed::Double { 2 } else { 4 };
         for _ in 0..4 {
             let old_div = self.timer.div_counter();
             self.timer.tick(&mut self.if_reg);
             let new_div = self.timer.div_counter();
             self.serial.tick(old_div, new_div, &mut self.if_reg);
+        }
+        for _ in 0..base_ticks {
             self.ppu.tick(&mut self.if_reg);
             self.cart.tick();
+        }
+    }
+
+    /// KEY1 (FF4D) exists only on CGB. On DMG the register is unmapped and
+    /// reads 0xFF; writes are ignored.
+    fn read_key1(&self) -> u8 {
+        if !self.double_speed_capable {
+            return 0xFF;
+        }
+        let cur = if self.speed == Speed::Double { 0x80 } else { 0 };
+        0x7E | cur | self.prepare_speed_switch as u8
+    }
+
+    /// STOP with KEY1.0 armed toggles speed instead of stopping.
+    pub fn try_speed_switch(&mut self) -> bool {
+        if self.double_speed_capable && self.prepare_speed_switch {
+            self.prepare_speed_switch = false;
+            self.speed = match self.speed {
+                Speed::Normal => Speed::Double,
+                Speed::Double => Speed::Normal,
+            };
+            true
+        } else {
+            false
         }
     }
 
@@ -114,6 +177,9 @@ impl Bus {
 
     pub fn peek8(&self, addr: u16) -> u8 {
         match addr {
+            0x0000..=0x00FF if self.boot_rom.is_some() => {
+                self.boot_rom.as_ref().unwrap()[addr as usize]
+            }
             0x0000..=0x7FFF => self.cart.read_rom(addr),
             0x8000..=0x9FFF => self.ppu.read_vram(addr - 0x8000),
             0xA000..=0xBFFF => self.cart.read_ram(addr),
@@ -135,6 +201,7 @@ impl Bus {
             0xFF06 => self.timer.tma,
             0xFF07 => self.timer.tac | 0xF8,
             0xFF0F => self.if_reg | 0xE0,
+            0xFF4D => self.read_key1(),
             0xFF40 => self.ppu.read_lcdc(),
             0xFF41 => self.ppu.read_stat(),
             0xFF42 => self.ppu.scy,
@@ -174,6 +241,11 @@ impl Bus {
             0xFF06 => self.timer.write_tma(val),
             0xFF07 => self.timer.write_tac(val),
             0xFF0F => self.if_reg = val | 0xE0,
+            0xFF4D => {
+                if self.double_speed_capable {
+                    self.prepare_speed_switch = val & 1 != 0;
+                }
+            }
             0xFF40 => self.ppu.write_lcdc(val, &mut self.if_reg),
             0xFF41 => self.ppu.write_stat(val, &mut self.if_reg),
             0xFF42 => self.ppu.scy = val,
@@ -183,6 +255,11 @@ impl Bus {
             0xFF46 => {
                 self.dma_reg = val;
                 self.dma_pending = Some((val, 2));
+            }
+            0xFF50 => {
+                if val != 0 {
+                    self.boot_rom = None;
+                }
             }
             0xFF47 => self.ppu.bgp = val,
             0xFF48 => self.ppu.obp0 = val,

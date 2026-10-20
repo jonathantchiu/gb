@@ -1,10 +1,17 @@
 use gb_core::GameBoy;
+use png::decode_reference_png;
 use std::path::{Path, PathBuf};
+
+mod png;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     Pass,
     Fail,
+    /// Wrong hardware revision, or needs a boot ROM that isn't in CI.
+    NotApplicable,
+    /// The emulator never reached the result within its cycle budget.
+    Timeout,
 }
 
 impl Status {
@@ -12,7 +19,37 @@ impl Status {
         match self {
             Status::Pass => "pass",
             Status::Fail => "fail",
+            Status::NotApplicable => "not-applicable",
+            Status::Timeout => "timeout",
         }
+    }
+    pub fn from_str(s: &str) -> Status {
+        match s {
+            "pass" => Status::Pass,
+            "fail" => Status::Fail,
+            "not-applicable" => Status::NotApplicable,
+            "timeout" => Status::Timeout,
+            other => panic!("bad ratchet status {other}"),
+        }
+    }
+    /// Does this state count toward the pass-rate denominator?
+    pub fn counts(self) -> bool {
+        matches!(self, Status::Pass | Status::Fail | Status::Timeout)
+    }
+}
+
+/// Helper used by the ratchet report.
+pub trait Denominator {
+    fn counts_for_denominator(&self) -> bool;
+}
+impl Denominator for Option<Status> {
+    fn counts_for_denominator(&self) -> bool {
+        self.map_or(true, |s| s.counts())
+    }
+}
+impl Denominator for Status {
+    fn counts_for_denominator(&self) -> bool {
+        self.counts()
     }
 }
 
@@ -24,13 +61,13 @@ pub enum Oracle {
     Blargg,
     /// mooneye: executes `LD B,B`; Fibonacci registers mean pass.
     Mooneye,
-    /// acid2-style: render a fixed number of frames, hash the framebuffer and
-    /// compare against the committed hash of the reference PNG.
-    Framebuffer { expected: u64, frames: u64 },
+    /// acid2-style: render a fixed number of frames, then compare the
+    /// framebuffer pixel-for-pixel against the decoded upstream reference
+    /// image (never a hash of our own first passing output). Canonical
+    /// framebuffer is byte-per-pixel greyscale; the DMG palette mapping is
+    /// pinned {0=>FF,1=>AA,2=>55,3=>00}; CGB is RGB555->RGB888, no color curve.
+    Framebuffer { reference: &'static str, frames: u64 },
 }
-
-/// FNV-1a 64 of `reference-dmg.png` decoded to 160x144 bytes in {FF,AA,55,00}.
-pub const DMG_ACID2_HASH: u64 = 0xbaa9_eb2e_a362_d6fe;
 
 impl Oracle {
     pub fn for_rom(rom: &str) -> Oracle {
@@ -38,7 +75,7 @@ impl Oracle {
             Oracle::Mooneye
         } else if rom == "dmg-acid2/dmg-acid2.gb" {
             Oracle::Framebuffer {
-                expected: DMG_ACID2_HASH,
+                reference: "dmg-acid2/reference-dmg.png",
                 frames: 12,
             }
         } else {
@@ -70,36 +107,49 @@ pub fn ratchet_path() -> PathBuf {
 }
 
 pub fn run_rom(rom: &str) -> RomResult {
+    run_rom_with_budget(rom, None)
+}
+
+pub fn run_rom_with_budget(rom: &str, timeout_override: Option<u64>) -> RomResult {
     let oracle = Oracle::for_rom(rom);
     let data = std::fs::read(roms_dir().join(rom)).unwrap_or_else(|e| panic!("{rom}: {e}"));
     let mut gb = GameBoy::new(&data);
+    let budget = timeout_override.unwrap_or_else(|| oracle.budget_mcycles());
     match oracle {
-        Oracle::Blargg => run_blargg(&mut gb, oracle.budget_mcycles()),
-        Oracle::Mooneye => run_mooneye(&mut gb, oracle.budget_mcycles()),
-        Oracle::Framebuffer { expected, frames } => {
-            run_framebuffer(&mut gb, expected, frames, oracle.budget_mcycles())
+        Oracle::Blargg => run_blargg(&mut gb, budget),
+        Oracle::Mooneye => run_mooneye(&mut gb, budget),
+        Oracle::Framebuffer { reference, frames } => {
+            run_framebuffer(&mut gb, reference, frames, budget)
         }
     }
 }
 
-pub fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
-
-fn run_framebuffer(gb: &mut GameBoy, expected: u64, frames: u64, budget: u64) -> RomResult {
+fn run_framebuffer(gb: &mut GameBoy, reference: &str, frames: u64, budget: u64) -> RomResult {
     let mut cycles = 0;
     while gb.bus.ppu.frame_count < frames && cycles < budget {
         cycles += gb.step() as u64;
     }
-    let hash = fnv1a64(gb.framebuffer());
+    if gb.bus.ppu.frame_count < frames {
+        return RomResult {
+            status: Status::Timeout,
+            detail: format!("did not finish {frames} frames in {cycles} M-cycles"),
+            mcycles: cycles,
+        };
+    }
+    let expected = decode_reference_png(&roms_dir().join(reference));
+    let fb = gb.framebuffer();
+    let first = (0..fb.len()).find(|&i| fb[i] != expected[i]);
+    let diffs = (0..fb.len()).filter(|&i| fb[i] != expected[i]).count();
     RomResult {
-        status: if hash == expected { Status::Pass } else { Status::Fail },
-        detail: format!("framebuffer fnv1a64={hash:#018x} expected={expected:#018x}"),
+        status: if diffs == 0 { Status::Pass } else { Status::Fail },
+        detail: format!(
+            "framebuffer vs {reference}: {diffs}/{} pixels differ{}",
+            fb.len(),
+            first.map_or(String::new(), |i| format!(
+                " (first at x={} y={}: got {:#04x} want {:#04x})",
+                i % 160, i / 160, fb[i], expected[i]
+            ))
+        ),
         mcycles: cycles,
     }
 }
@@ -170,7 +220,7 @@ fn run_blargg(gb: &mut GameBoy, budget: u64) -> RomResult {
         detail += &format!("\n[timeout after {cycles} M-cycles]");
     }
     RomResult {
-        status: status.unwrap_or(Status::Fail),
+        status: status.unwrap_or(Status::Timeout),
         detail,
         mcycles: cycles,
     }
@@ -201,7 +251,7 @@ fn run_mooneye(gb: &mut GameBoy, budget: u64) -> RomResult {
         }
     }
     RomResult {
-        status: Status::Fail,
+        status: Status::Timeout,
         detail: format!("[timeout after {cycles} M-cycles, pc={:#06x}]", gb.cpu.pc),
         mcycles: cycles,
     }
@@ -210,6 +260,10 @@ fn run_mooneye(gb: &mut GameBoy, budget: u64) -> RomResult {
 pub struct RatchetEntry {
     pub rom: String,
     pub expected: Status,
+    /// Required for `pass` lines (anti-goal: unexplained passes are bugs).
+    pub reason: String,
+    /// Per-ROM cycle budget override, in emulated M-cycles.
+    pub timeout_mcycles: Option<u64>,
 }
 
 pub fn parse_ratchet(text: &str) -> Vec<RatchetEntry> {
@@ -217,17 +271,24 @@ pub fn parse_ratchet(text: &str) -> Vec<RatchetEntry> {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|l| {
-            let (status, rom) = l
-                .split_once(' ')
-                .unwrap_or_else(|| panic!("bad ratchet line: {l}"));
-            let expected = match status {
-                "pass" => Status::Pass,
-                "fail" => Status::Fail,
-                other => panic!("bad ratchet status {other}"),
+            let (status, rest) = l.split_once(' ').unwrap_or_else(|| panic!("bad ratchet line: {l}"));
+            let expected = Status::from_str(status);
+            let (rom, reason) = match rest.split_once(" # ") {
+                Some((r, why)) => (r.trim().to_string(), why.trim().to_string()),
+                None => (rest.trim().to_string(), String::new()),
             };
+            let (rom, timeout_mcycles) = match rom.split_once('@') {
+                Some((r, c)) => (r.trim().to_string(), Some(c.trim().parse().expect("timeout cycles"))),
+                None => (rom, None),
+            };
+            if expected == Status::Pass && reason.is_empty() {
+                panic!("pass line needs a reason: {l}");
+            }
             RatchetEntry {
-                rom: rom.trim().to_string(),
+                rom,
                 expected,
+                reason,
+                timeout_mcycles,
             }
         })
         .collect()

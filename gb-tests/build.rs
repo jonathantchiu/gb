@@ -13,8 +13,19 @@ fn main() {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let (_, rom) = line.split_once(' ').expect("ratchet line");
-        let rom = rom.trim();
+        let (status, rest) = line.split_once(' ').expect("status + path");
+        let (rom_part, reason) = match rest.split_once(" # ") {
+            Some((r, why)) => (r.trim(), why.trim().to_string()),
+            None => (rest.trim(), String::new()),
+        };
+        assert!(
+            matches!(status, "pass" | "fail" | "not-applicable" | "timeout"),
+            "bad ratchet status {status}"
+        );
+        let rom = rom_part.split('@').next().unwrap().trim();
+        if status == "pass" && reason.is_empty() {
+            panic!("pass line must carry a reason: {line}");
+        }
         let mut name: String = rom
             .trim_end_matches(".gb")
             .chars()

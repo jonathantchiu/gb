@@ -48,13 +48,14 @@ fn headless(args: &[String]) {
         std::process::exit(2);
     };
     let rom = std::fs::read(rom_path).expect("cannot read rom");
+    let boot = std::env::var_os("GB_BOOT_ROM").map(|p| std::fs::read(p).expect("GB_BOOT_ROM"));
     let max: u64 = args
         .iter()
         .position(|a| a == "--mcycles")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.parse().expect("--mcycles N"))
         .unwrap_or(30_000_000);
-    let mut gb = GameBoy::new(&rom);
+    let mut gb = GameBoy::with_boot_rom(&rom, boot);
     let mut reported = 0usize;
     while gb.bus.mcycles < max {
         gb.step();
@@ -72,7 +73,8 @@ fn save_path(rom: &Path) -> PathBuf {
 
 fn play(rom_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let rom = std::fs::read(rom_path)?;
-    let mut gb = GameBoy::new(&rom);
+    let boot = std::env::var_os("GB_BOOT_ROM").map(|p| std::fs::read(p).expect("GB_BOOT_ROM"));
+    let mut gb = GameBoy::with_boot_rom(&rom, boot);
 
     let sav = save_path(rom_path);
     if gb.has_battery() {

@@ -25,6 +25,27 @@ pub struct Cpu {
 }
 
 impl Cpu {
+    /// Power-on state when a boot ROM is mapped: zeroed registers, PC=0.
+    pub fn new_boot_rom() -> Self {
+        Cpu {
+            a: 0,
+            f: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+            h: 0,
+            l: 0,
+            sp: 0,
+            pc: 0x0000,
+            ime: false,
+            ime_scheduled: false,
+            halted: false,
+            halt_bug: false,
+            stopped: false,
+        }
+    }
+
     pub fn new_post_boot() -> Self {
         Cpu {
             a: 0x01,
@@ -367,7 +388,10 @@ impl Cpu {
             0x00 => {}
             0x10 => {
                 self.fetch8(bus);
-                self.stopped = true;
+                // STOP with KEY1.0 armed is a speed switch on CGB, not a stop.
+                if !bus.try_speed_switch() {
+                    self.stopped = true;
+                }
             }
             0x76 => {
                 let pending = bus.interrupt_pending();
