@@ -1,3 +1,4 @@
+pub mod apu;
 pub mod bus;
 pub mod cartridge;
 pub mod cpu;
@@ -92,6 +93,10 @@ impl GameBoy {
 
     pub fn framebuffer(&self) -> &[u8] {
         &self.bus.ppu.framebuffer
+    }
+
+    pub fn take_audio_samples(&mut self) -> Vec<(i16, i16)> {
+        std::mem::take(&mut self.bus.apu.audio_buffer)
     }
 
     /// Runs until the PPU finishes the next frame (enters VBlank). With the

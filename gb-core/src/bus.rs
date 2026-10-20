@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::cartridge::Cartridge;
 use crate::joypad::Joypad;
 use crate::ppu::Ppu;
@@ -8,6 +9,7 @@ use crate::timer::Timer;
 pub struct Bus {
     pub cart: Cartridge,
     pub ppu: Ppu,
+    pub apu: Apu,
     pub timer: Timer,
     pub serial: Serial,
     pub joypad: Joypad,
@@ -46,6 +48,7 @@ impl Bus {
         Bus {
             cart,
             ppu: Ppu::new(),
+            apu: Apu::new(),
             timer: Timer::new(),
             serial: Serial::new(),
             joypad: Joypad::new(),
@@ -98,9 +101,13 @@ impl Bus {
         if !self.double_speed {
             for _ in 0..fast_cycles {
                 self.ppu.tick(&mut self.if_reg);
+                self.apu.tick();
                 let old_div = self.timer.div_counter();
                 self.timer.tick(&mut self.if_reg);
                 let new_div = self.timer.div_counter();
+                if (old_div & 0x1000) != 0 && (new_div & 0x1000) == 0 {
+                    self.apu.clock_frame_sequencer();
+                }
                 self.serial.tick(old_div, new_div, &mut self.if_reg);
                 self.cart.tick();
             }
@@ -109,10 +116,14 @@ impl Bus {
         assert!(fast_cycles % 2 == 0, "double-speed ticks come in pairs");
         for _ in 0..fast_cycles / 2 {
             self.ppu.tick(&mut self.if_reg);
+            self.apu.tick();
             for _ in 0..2 {
                 let old_div = self.timer.div_counter();
                 self.timer.tick(&mut self.if_reg);
                 let new_div = self.timer.div_counter();
+                if (old_div & 0x2000) != 0 && (new_div & 0x2000) == 0 {
+                    self.apu.clock_frame_sequencer();
+                }
                 self.serial.tick(old_div, new_div, &mut self.if_reg);
                 self.cart.tick();
             }
@@ -207,6 +218,7 @@ impl Bus {
             0xFF06 => self.timer.tma,
             0xFF07 => self.timer.tac | 0xF8,
             0xFF0F => self.if_reg | 0xE0,
+            0xFF10..=0xFF3F => self.apu.read(addr),
             0xFF4D => self.read_key1(),
             0xFF40 => self.ppu.read_lcdc(),
             0xFF41 => self.ppu.read_stat(),
@@ -242,11 +254,19 @@ impl Bus {
             0xFF00 => self.joypad.write(val),
             0xFF01 => self.serial.sb = val,
             0xFF02 => self.serial.write_sc(val),
-            0xFF04 => self.timer.write_div(),
+            0xFF04 => {
+                let old_div = self.timer.div_counter();
+                self.timer.write_div();
+                let bit = if self.double_speed { 0x2000 } else { 0x1000 };
+                if (old_div & bit) != 0 {
+                    self.apu.clock_frame_sequencer();
+                }
+            }
             0xFF05 => self.timer.write_tima(val),
             0xFF06 => self.timer.write_tma(val),
             0xFF07 => self.timer.write_tac(val),
             0xFF0F => self.if_reg = val | 0xE0,
+            0xFF10..=0xFF3F => self.apu.write(addr, val),
             0xFF4D => {
                 if self.double_speed_capable {
                     self.prepare_speed_switch = val & 1 != 0;

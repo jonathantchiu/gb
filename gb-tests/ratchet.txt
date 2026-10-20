@@ -123,31 +123,31 @@ pass mooneye/emulator-only/mbc5/rom_4Mb.gb ; MBC5 mapper: 9-bit ROM bank registe
 pass mooneye/emulator-only/mbc5/rom_512kb.gb ; MBC5 mapper: 9-bit ROM bank register, 4-bit RAM bank, size-masked offsets
 pass mooneye/emulator-only/mbc5/rom_64Mb.gb ; MBC5 mapper: 9-bit ROM bank register, 4-bit RAM bank, size-masked offsets
 pass mooneye/emulator-only/mbc5/rom_8Mb.gb ; MBC5 mapper: 9-bit ROM bank register, 4-bit RAM bank, size-masked offsets
-fail dmg_sound/rom_singles/01-registers.gb
-timeout dmg_sound/rom_singles/02-len ctr.gb
-timeout dmg_sound/rom_singles/03-trigger.gb
-timeout dmg_sound/rom_singles/04-sweep.gb
-timeout dmg_sound/rom_singles/05-sweep details.gb
-fail dmg_sound/rom_singles/06-overflow on trigger.gb
-timeout dmg_sound/rom_singles/07-len sweep period sync.gb
-timeout dmg_sound/rom_singles/08-len ctr during power.gb
-fail dmg_sound/rom_singles/09-wave read while on.gb
-fail dmg_sound/rom_singles/10-wave trigger while on.gb
-timeout dmg_sound/rom_singles/11-regs after power.gb
-fail dmg_sound/rom_singles/12-wave write while on.gb
-timeout dmg_sound/dmg_sound.gb
-fail cgb_sound/rom_singles/01-registers.gb
-timeout cgb_sound/rom_singles/02-len ctr.gb
-timeout cgb_sound/rom_singles/03-trigger.gb
-timeout cgb_sound/rom_singles/04-sweep.gb
-timeout cgb_sound/rom_singles/05-sweep details.gb
-fail cgb_sound/rom_singles/06-overflow on trigger.gb
-timeout cgb_sound/rom_singles/07-len sweep period sync.gb
-timeout cgb_sound/rom_singles/08-len ctr during power.gb
+pass dmg_sound/rom_singles/01-registers.gb ; APU NR10-NR52 read masks, power-off clearing, and wave RAM persistence
+pass dmg_sound/rom_singles/02-len ctr.gb ; 256 Hz length counters, 0->max load, DAC enable/disable rules across all 4 channels
+pass dmg_sound/rom_singles/03-trigger.gb ; extra length clocking on NRx4 write in first half of length period and zero-length unfreezing
+pass dmg_sound/rom_singles/04-sweep.gb ; Ch1 frequency sweep calculation, 11-bit overflow >$7FF check on trigger and reload
+pass dmg_sound/rom_singles/05-sweep details.gb ; sweep period 0->8 timer, shadow freq copy, negate-to-positive disable quirk, two's complement subtract
+pass dmg_sound/rom_singles/06-overflow on trigger.gb ; exact 11-bit sweep overflow boundaries on trigger for shifts 1..7
+pass dmg_sound/rom_singles/07-len sweep period sync.gb ; 512 Hz frame sequencer driven by DIV bit 12 falling edge, step=7 on APU power-on
+pass dmg_sound/rom_singles/08-len ctr during power.gb ; DMG preserves length counters across APU power-off without clocking them
+pass dmg_sound/rom_singles/09-wave read while on.gb ; DMG wave RAM read while Ch3 active returns sample byte only on the 2-T-cycle fetch window
+pass dmg_sound/rom_singles/10-wave trigger while on.gb ; DMG wave RAM corruption when retriggering Ch3 2 T-cycles before a sample fetch
+pass dmg_sound/rom_singles/11-regs after power.gb ; DMG allows NRx1 length writes while APU is powered off without latching duty bits
+pass dmg_sound/rom_singles/12-wave write while on.gb ; DMG wave RAM write while Ch3 active lands only on the 2-T-cycle sample fetch window
+pass dmg_sound/dmg_sound.gb ; all 12 blargg dmg_sound sub-tests pass in combined multi-ROM
+pass cgb_sound/rom_singles/01-registers.gb ; APU NR10-NR52 read masks, power-off clearing, and wave RAM persistence
+pass cgb_sound/rom_singles/02-len ctr.gb ; 256 Hz length counters, 0->max load, DAC enable/disable rules across all 4 channels
+pass cgb_sound/rom_singles/03-trigger.gb ; extra length clocking on NRx4 write in first half of length period and zero-length unfreezing
+pass cgb_sound/rom_singles/04-sweep.gb ; Ch1 frequency sweep calculation, 11-bit overflow >$7FF check on trigger and reload
+pass cgb_sound/rom_singles/05-sweep details.gb ; sweep period 0->8 timer, shadow freq copy, negate-to-positive disable quirk, two's complement subtract
+pass cgb_sound/rom_singles/06-overflow on trigger.gb ; exact 11-bit sweep overflow boundaries on trigger for shifts 1..7
+pass cgb_sound/rom_singles/07-len sweep period sync.gb ; 512 Hz frame sequencer driven by DIV bit 12 falling edge, step=7 on APU power-on
+fail cgb_sound/rom_singles/08-len ctr during power.gb
 fail cgb_sound/rom_singles/09-wave read while on.gb
 fail cgb_sound/rom_singles/10-wave trigger while on.gb
-timeout cgb_sound/rom_singles/11-regs after power.gb
+fail cgb_sound/rom_singles/11-regs after power.gb
 fail cgb_sound/rom_singles/12-wave.gb
-timeout cgb_sound/cgb_sound.gb
+fail cgb_sound/cgb_sound.gb
 fail cgb-acid2/cgb-acid2.gbc
 not-applicable age/age-test-roms/emulator-only/mbc/rom_32Mb.gb ; age-test-roms not vendored in this repo (no redistributable release asset); mooneye emulator-only MBC ROMs cover the same behavior

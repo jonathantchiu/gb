@@ -143,3 +143,33 @@ fn clock_domains_match_single_rate_in_single_speed() {
     assert_eq!(single.bus.timer.div_counter(), via2.bus.timer.div_counter());
     assert_eq!(single.framebuffer(), via2.framebuffer());
 }
+
+#[test]
+fn apu_generates_samples_in_slow_clock_domain() {
+    let mut gb = GameBoy::new(&rom_with(0x00, 0x00));
+    gb.bus.poke8(0xFF26, 0x80); // NR52 power on
+    gb.bus.poke8(0xFF24, 0x77); // NR50 master vol
+    gb.bus.poke8(0xFF25, 0x11); // NR51 Ch1 L+R
+    gb.bus.poke8(0xFF11, 0x80); // NR11 50% duty
+    gb.bus.poke8(0xFF12, 0xF0); // NR12 vol=15
+    gb.bus.poke8(0xFF13, 0x00); // NR13 freq lo
+    gb.bus.poke8(0xFF14, 0x87); // NR14 trigger, freq=0x700
+
+    for _ in 0..4096 {
+        gb.bus.tick_system_cycles(4);
+    }
+    let single_samples = gb.take_audio_samples();
+    assert!(!single_samples.is_empty());
+    assert!(single_samples.iter().any(|&(l, r)| l > 0 && r > 0));
+
+    let mut gb2 = GameBoy::new(&rom_with(0x00, 0x00));
+    gb2.bus.double_speed = true;
+    for _ in 0..8192 {
+        gb2.bus.tick_system_cycles(4);
+    }
+    let double_samples = gb2.take_audio_samples();
+    // 8192 fast M-cycles in double speed = 4096 slow M-cycles, so identical
+    // sample count to 4096 single-speed M-cycles.
+    assert_eq!(double_samples.len(), single_samples.len());
+}
+
