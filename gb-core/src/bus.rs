@@ -4,17 +4,6 @@ use crate::ppu::Ppu;
 use crate::serial::Serial;
 use crate::timer::Timer;
 
-/// There are two clock domains. CPU, DIV/timer, and serial run at the CPU
-/// rate, which doubles in CGB double-speed mode. PPU, APU, and HDMA do not
-/// change. On a DMG machine (or CGB at single speed) the two domains advance
-/// together; a CGB at double speed advances the fast domain twice per base
-/// tick. See the design's "Two clock domains" section.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Speed {
-    Normal,
-    Double,
-}
-
 #[derive(Clone)]
 pub struct Bus {
     pub cart: Cartridge,
@@ -28,8 +17,10 @@ pub struct Bus {
     pub if_reg: u8,
     pub dma_reg: u8,
     pub mcycles: u64,
-    /// Current speed of the fast domain. DMG is always `Normal`.
-    pub speed: Speed,
+    /// CGB double-speed mode: CPU/timer/serial run at 2x, PPU/APU stay at
+    /// 1x. Always false until the CGB core drives it; the domains are
+    /// separate from the start so phase 8 is not a timing retrofit.
+    pub double_speed: bool,
     /// KEY1 bit 0: set by the program, acted on by STOP.
     pub prepare_speed_switch: bool,
     /// Whether this machine can switch speed at all (CGB only).
@@ -46,7 +37,7 @@ impl Bus {
     }
 
     pub fn with_boot_rom(cart: Cartridge, boot_rom: Option<Vec<u8>>) -> Self {
-        let mut bus = Bus::new_inner(cart);
+        let mut bus = Self::new_inner(cart);
         bus.boot_rom = boot_rom;
         bus
     }
@@ -64,34 +55,12 @@ impl Bus {
             if_reg: 0xE1,
             dma_reg: 0xFF,
             mcycles: 0,
-            speed: Speed::Normal,
+            double_speed: false,
             prepare_speed_switch: false,
             double_speed_capable: false,
             boot_rom: None,
             dma_active: None,
             dma_pending: None,
-        }
-    }
-
-    pub fn tick_mcycle(&mut self) {
-        self.begin_mcycle();
-        self.tick_tcycles();
-    }
-
-    /// One M-cycle at the CPU's current rate. The fast domain (CPU/DIV/serial)
-    /// always advances 4 CPU-side T-cycles. The base domain (PPU/APU/HDMA/cart)
-    /// advances 4 base T-cycles at normal speed, 2 at double speed.
-    fn tick_tcycles(&mut self) {
-        let base_ticks = if self.speed == Speed::Double { 2 } else { 4 };
-        for _ in 0..4 {
-            let old_div = self.timer.div_counter();
-            self.timer.tick(&mut self.if_reg);
-            let new_div = self.timer.div_counter();
-            self.serial.tick(old_div, new_div, &mut self.if_reg);
-        }
-        for _ in 0..base_ticks {
-            self.ppu.tick(&mut self.if_reg);
-            self.cart.tick();
         }
     }
 
@@ -101,7 +70,7 @@ impl Bus {
         if !self.double_speed_capable {
             return 0xFF;
         }
-        let cur = if self.speed == Speed::Double { 0x80 } else { 0 };
+        let cur = if self.double_speed { 0x80 } else { 0 };
         0x7E | cur | self.prepare_speed_switch as u8
     }
 
@@ -109,14 +78,51 @@ impl Bus {
     pub fn try_speed_switch(&mut self) -> bool {
         if self.double_speed_capable && self.prepare_speed_switch {
             self.prepare_speed_switch = false;
-            self.speed = match self.speed {
-                Speed::Normal => Speed::Double,
-                Speed::Double => Speed::Normal,
-            };
+            self.double_speed = !self.double_speed;
             true
         } else {
             false
         }
+    }
+
+    pub fn tick_mcycle(&mut self) {
+        self.begin_mcycle();
+        self.tick_tcycles();
+    }
+
+    /// Advances the fast domain by `fast_cycles` T-cycles. The slow domain
+    /// (PPU, APU base clock) advances one step per fast step at 1x, and one
+    /// step per two fast steps in double-speed mode, interleaved so a slow
+    /// step never runs ahead of the fast cycle it is paired with.
+    pub fn tick_system_cycles(&mut self, fast_cycles: u32) {
+        if !self.double_speed {
+            for _ in 0..fast_cycles {
+                self.ppu.tick(&mut self.if_reg);
+                let old_div = self.timer.div_counter();
+                self.timer.tick(&mut self.if_reg);
+                let new_div = self.timer.div_counter();
+                self.serial.tick(old_div, new_div, &mut self.if_reg);
+                self.cart.tick();
+            }
+            return;
+        }
+        assert!(fast_cycles % 2 == 0, "double-speed ticks come in pairs");
+        for _ in 0..fast_cycles / 2 {
+            self.ppu.tick(&mut self.if_reg);
+            for _ in 0..2 {
+                let old_div = self.timer.div_counter();
+                self.timer.tick(&mut self.if_reg);
+                let new_div = self.timer.div_counter();
+                self.serial.tick(old_div, new_div, &mut self.if_reg);
+                self.cart.tick();
+            }
+        }
+    }
+
+    fn tick_tcycles(&mut self) {
+        // T-cycle-domain equivalent of the loop above; kept as a name the
+        // CPU-facing API references. Delegates to tick_system_cycles.
+        self.tick_system_cycles(4);
     }
 
     fn tick_dma(&mut self) {

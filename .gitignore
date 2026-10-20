@@ -1,4 +1,7 @@
 target/
+
+# Owner-supplied boot ROMs and commercial game ROMs: never committed.
+bootroms/
+local-roms/
 *.sav
-boot-roms/
-roms-local/
+*.state

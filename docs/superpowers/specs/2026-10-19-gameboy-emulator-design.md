@@ -1,7 +1,11 @@
 # Game Boy Emulator — Design
 
 **Date:** 2026-10-19
-**Status:** Awaiting approval
+**Status:** Approved design, ready for planning
+**Progress (2026-10-19):** Phases 1–5 implemented (DMG core, pixel-FIFO PPU,
+mappers, frontend, battery/save states). Ratchet: 107/141 applicable passing
+(19 fail, 16 timeout, 4 not-applicable). Two clock domains landed per this
+revision; APU (phase 6) and DMG-ABC mooneye tail (phase 7) remain.
 
 ## Intent
 

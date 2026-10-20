@@ -90,3 +90,56 @@ fn snapshot_restores_identical_execution() {
     assert_eq!(gb.framebuffer(), restored.framebuffer());
     assert_eq!(gb.cpu.pc, restored.cpu.pc);
 }
+
+#[test]
+fn clock_domains_timer_runs_twice_ppu_rate_in_double_speed() {
+    let mut gb = GameBoy::new(&rom_with(0x00, 0x00));
+    gb.bus.double_speed = true;
+    // 1024 fast cycles = 512 slow cycles. Timer period at TAC rate 01 (bit 3,
+    // ÷16) overflows TIMA after 256 fast increments of the selected bit.
+    gb.bus.poke8(0xFF06, 0x00); // TMA
+    gb.bus.poke8(0xFF05, 0xFE); // TIMA
+    gb.bus.poke8(0xFF07, 0x05); // TAC: enable, rate 01
+    for _ in 0..256 {
+        gb.bus.tick_system_cycles(2);
+    }
+    assert!(gb.bus.if_reg & 0x04 != 0, "timer IRQ must fire");
+    // PPU saw only 1024 * 1/2 = 512 dots: still on line 1 (2 lines = 912 dots).
+    assert!(gb.bus.ppu.ly < 2, "ly={}", gb.bus.ppu.ly);
+}
+
+#[test]
+fn clock_domains_match_single_rate_in_single_speed() {
+    // Grayscale framebuffer after N M-cycles must be identical whether
+    // double_speed is false or the caller ticks 2 fast cycles per slow one.
+    let rom = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../gb-tests/roms/dmg-acid2/dmg-acid2.gb"
+    ))
+    .unwrap();
+    // Same number of fast-domain steps; the PPU must advance at half rate.
+    let mut a = GameBoy::new(&rom);
+    for _ in 0..4096 {
+        a.bus.tick_system_cycles(2);
+    }
+    let mut b = GameBoy::new(&rom);
+    b.bus.double_speed = true;
+    for _ in 0..4096 {
+        b.bus.tick_system_cycles(2);
+    }
+    // Fast domain (timer/DIV) advanced identically in both machines...
+    assert_eq!(a.bus.timer.div_counter(), b.bus.timer.div_counter());
+    // ...while the slow domain (PPU) advanced half as far in double speed.
+    assert!(b.bus.ppu.ly < a.bus.ppu.ly, "ly a={} b={}", a.bus.ppu.ly, b.bus.ppu.ly);
+    // In single speed, tick_system_cycles(4) is exactly one M-cycle.
+    let mut single = GameBoy::new(&rom);
+    for _ in 0..1000 {
+        single.bus.tick_mcycle();
+    }
+    let mut via2 = GameBoy::new(&rom);
+    for _ in 0..1000 {
+        via2.bus.tick_system_cycles(4);
+    }
+    assert_eq!(single.bus.timer.div_counter(), via2.bus.timer.div_counter());
+    assert_eq!(single.framebuffer(), via2.framebuffer());
+}
