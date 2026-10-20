@@ -40,7 +40,7 @@ fn main() {
                 let k = next.fetch_add(1, Ordering::Relaxed);
                 let Some(&i) = selected.get(k) else { break };
                 let r = run_rom(&entries[i].0);
-                results.lock().unwrap()[i] = Some((r.status, r.detail));
+                results.lock().unwrap()[i] = Some((r.status, format!("[{} M-cycles]\n{}", r.mcycles, r.detail)));
             });
         }
     });

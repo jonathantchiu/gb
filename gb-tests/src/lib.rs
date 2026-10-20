@@ -115,6 +115,10 @@ fn has_cart_signature(gb: &GameBoy) -> bool {
 fn run_blargg(gb: &mut GameBoy, budget: u64) -> RomResult {
     let mut status = None;
     let mut cycles = 0;
+    // The cart-RAM shell writes the DE B0 61 signature, then $80 to A000 to
+    // mean "running", then the real exit code. Only trust A000 once we have
+    // seen the $80, otherwise the RAM's power-on contents decide the result.
+    let mut armed = false;
     while cycles < budget {
         cycles += gb.step() as u64;
         let out = gb.serial_output();
@@ -128,8 +132,24 @@ fn run_blargg(gb: &mut GameBoy, budget: u64) -> RomResult {
         }
         if has_cart_signature(gb) {
             let code = gb.bus.peek8(0xA000);
-            if code != 0x80 {
+            if code == 0x80 {
+                armed = true;
+            } else if armed {
                 status = Some(if code == 0 { Status::Pass } else { Status::Fail });
+                break;
+            }
+        }
+        // Older blargg shells print to the LCD only; once the program parks
+        // in its post-exit `jr -2` loop, read the result off the tilemap.
+        let pc = gb.cpu.pc;
+        if gb.bus.peek8(pc) == 0x18 && gb.bus.peek8(pc.wrapping_add(1)) == 0xFE {
+            let bg_map = &gb.bus.ppu.vram[0x1800..0x1C00];
+            if contains(bg_map, b"Passed") {
+                status = Some(Status::Pass);
+                break;
+            }
+            if contains(bg_map, b"Failed") {
+                status = Some(Status::Fail);
                 break;
             }
         }

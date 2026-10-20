@@ -51,6 +51,7 @@ impl Bus {
             let new_div = self.timer.div_counter();
             self.serial.tick(old_div, new_div, &mut self.if_reg);
             self.ppu.tick(&mut self.if_reg);
+            self.cart.tick();
         }
     }
 
