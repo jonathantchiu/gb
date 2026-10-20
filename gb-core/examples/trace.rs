@@ -24,6 +24,14 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(50_000_000);
     let mut gb = GameBoy::new(&rom);
+    if args.get(3).map(|s| s.as_str()) == Some("fbdump") {
+        let frames: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(12);
+        while gb.bus.ppu.frame_count < frames {
+            gb.step();
+        }
+        std::fs::write(args.get(5).unwrap(), gb.framebuffer()).unwrap();
+        return;
+    }
     if args.get(3).map(|s| s.as_str()) == Some("memdump") {
         let at: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap();
         let addr: u16 = u16::from_str_radix(args.get(5).unwrap(), 16).unwrap();
@@ -47,12 +55,13 @@ fn main() {
             if i >= lo {
                 let op = gb.bus.peek8(pc);
                 println!(
-                    "{i:6} pc={pc:#06x} op={op:#04x} a={:#04x} f={:#04x} bc={:#06x} de={:#06x} hl={:#06x} sp={:#06x}",
-                    c.a, c.f,
+                    "{i:6} pc={pc:#06x} op={op:#04x} a={:#04x} bc={:#06x} div={:#04x} tima={:#04x} tac={:#04x} if={:#04x}",
+                    c.a,
                     (c.b as u16) << 8 | c.c as u16,
-                    (c.d as u16) << 8 | c.e as u16,
-                    (c.h as u16) << 8 | c.l as u16,
-                    c.sp
+                    gb.bus.timer.div(),
+                    gb.bus.timer.tima,
+                    gb.bus.timer.tac,
+                    gb.bus.if_reg
                 );
             }
             gb.step();

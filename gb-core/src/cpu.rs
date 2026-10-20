@@ -326,31 +326,39 @@ impl Cpu {
             return;
         }
 
-        let was_scheduled = self.ime_scheduled;
-        let op = self.fetch8(bus);
-        self.execute(bus, op);
-
-        if was_scheduled {
+        if self.ime_scheduled {
             self.ime = true;
             self.ime_scheduled = false;
         }
+
+        let op = self.fetch8(bus);
+        self.execute(bus, op);
     }
 
-    fn service_interrupt(&mut self, bus: &mut Bus, pending: u8) {
-        let bit = pending.trailing_zeros() as u8;
+    fn service_interrupt(&mut self, bus: &mut Bus, _pending: u8) {
+        if self.halt_bug {
+            self.halt_bug = false;
+            self.pc = self.pc.wrapping_sub(1);
+        }
         self.ime = false;
         self.ime_scheduled = false;
         self.halted = false;
-        bus.if_reg &= !(1 << bit);
         bus.tick_mcycle();
         bus.tick_mcycle();
-        self.sp = self.sp.wrapping_sub(1);
         let pc = self.pc;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write8(self.sp, (pc >> 8) as u8);
+        let actual = bus.interrupt_pending();
         self.sp = self.sp.wrapping_sub(1);
         bus.write8(self.sp, pc as u8);
-        self.pc = 0x0040 + 0x0008 * bit as u16;
         bus.tick_mcycle();
+        if actual != 0 {
+            let bit = actual.trailing_zeros() as u8;
+            bus.if_reg &= !(1 << bit);
+            self.pc = 0x0040 + 0x0008 * bit as u16;
+        } else {
+            self.pc = 0x0000;
+        }
     }
 
     fn execute(&mut self, bus: &mut Bus, op: u8) {

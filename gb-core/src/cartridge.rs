@@ -6,6 +6,15 @@ pub enum Mapper {
         mode: u8,
         ram_enabled: bool,
     },
+    Mbc2 {
+        rom_bank: u8,
+        ram_enabled: bool,
+    },
+    Mbc3 {
+        rom_bank: u8,
+        ram_bank: u8,
+        ram_enabled: bool,
+    },
     Mbc5 {
         rom_bank: u16,
         ram_bank: u8,
@@ -27,7 +36,7 @@ impl Cartridge {
             data.resize(0x8000, 0);
         }
         let cart_type = data[0x147];
-        let ram_size = match data[0x149] {
+        let mut ram_size = match data[0x149] {
             0x00 => 0,
             0x01 => 2 * 1024,
             0x02 => 8 * 1024,
@@ -36,12 +45,32 @@ impl Cartridge {
             0x05 => 64 * 1024,
             _ => 0,
         };
+        if ram_size == 0
+            && matches!(
+                cart_type,
+                0x02 | 0x03 | 0x08 | 0x09 | 0x10 | 0x12 | 0x13 | 0x1A | 0x1B | 0x1D | 0x1E
+            )
+        {
+            ram_size = 8 * 1024;
+        }
+        if matches!(cart_type, 0x05 | 0x06) {
+            ram_size = 512;
+        }
         let mapper = match cart_type {
             0x00 | 0x08 | 0x09 => Mapper::NoMbc,
             0x01..=0x03 => Mapper::Mbc1 {
                 rom_bank: 1,
                 bank2: 0,
                 mode: 0,
+                ram_enabled: false,
+            },
+            0x05 | 0x06 => Mapper::Mbc2 {
+                rom_bank: 1,
+                ram_enabled: false,
+            },
+            0x0F..=0x13 => Mapper::Mbc3 {
+                rom_bank: 1,
+                ram_bank: 0,
                 ram_enabled: false,
             },
             0x19..=0x1E => Mapper::Mbc5 {
@@ -88,8 +117,22 @@ impl Cartridge {
                     };
                     b * 0x4000 + addr
                 } else {
-                    let low = if rom_bank & 0x1F == 0 { 1 } else { *rom_bank & 0x1F };
+                    let low = if rom_bank & 0x1F == 0 {
+                        1
+                    } else {
+                        *rom_bank & 0x1F
+                    };
                     let b = (((*bank2 as usize) << 5) | low as usize) % banks;
+                    b * 0x4000 + (addr - 0x4000)
+                };
+                self.rom.get(idx).copied().unwrap_or(0xFF)
+            }
+            Mapper::Mbc2 { rom_bank, .. } | Mapper::Mbc3 { rom_bank, .. } => {
+                let banks = self.rom_bank_count();
+                let idx = if addr < 0x4000 {
+                    addr
+                } else {
+                    let b = (*rom_bank as usize).max(1) % banks;
                     b * 0x4000 + (addr - 0x4000)
                 };
                 self.rom.get(idx).copied().unwrap_or(0xFF)
@@ -126,6 +169,32 @@ impl Cartridge {
                 0x6000..=0x7FFF => *mode = val & 0x01,
                 _ => {}
             },
+            Mapper::Mbc2 {
+                rom_bank,
+                ram_enabled,
+            } => {
+                if addr < 0x4000 {
+                    if addr & 0x0100 == 0 {
+                        *ram_enabled = val & 0x0F == 0x0A;
+                    } else {
+                        let b = val & 0x0F;
+                        *rom_bank = if b == 0 { 1 } else { b };
+                    }
+                }
+            }
+            Mapper::Mbc3 {
+                rom_bank,
+                ram_bank,
+                ram_enabled,
+            } => match addr {
+                0x0000..=0x1FFF => *ram_enabled = val & 0x0F == 0x0A,
+                0x2000..=0x3FFF => {
+                    let b = val & 0x7F;
+                    *rom_bank = if b == 0 { 1 } else { b };
+                }
+                0x4000..=0x5FFF => *ram_bank = val & 0x0F,
+                _ => {}
+            },
             Mapper::Mbc5 {
                 rom_bank,
                 ram_bank,
@@ -144,8 +213,12 @@ impl Cartridge {
         if self.ram.is_empty() {
             return None;
         }
+        if matches!(self.mapper, Mapper::Mbc2 { .. }) {
+            return Some((addr as usize - 0xA000) & 0x01FF);
+        }
         let bank = match &self.mapper {
             Mapper::Mbc1 { bank2, mode, .. } if *mode == 1 => *bank2 as usize,
+            Mapper::Mbc3 { ram_bank, .. } => *ram_bank as usize,
             Mapper::Mbc5 { ram_bank, .. } => *ram_bank as usize,
             _ => 0,
         };
@@ -161,6 +234,8 @@ impl Cartridge {
         match &self.mapper {
             Mapper::NoMbc => true,
             Mapper::Mbc1 { ram_enabled, .. } => *ram_enabled,
+            Mapper::Mbc2 { ram_enabled, .. } => *ram_enabled,
+            Mapper::Mbc3 { ram_enabled, .. } => *ram_enabled,
             Mapper::Mbc5 { ram_enabled, .. } => *ram_enabled,
         }
     }
@@ -170,7 +245,13 @@ impl Cartridge {
             return 0xFF;
         }
         match self.ram_addr(addr) {
-            Some(i) => self.ram[i],
+            Some(i) => {
+                if matches!(self.mapper, Mapper::Mbc2 { .. }) {
+                    0xF0 | (self.ram[i] & 0x0F)
+                } else {
+                    self.ram[i]
+                }
+            }
             None => 0xFF,
         }
     }
@@ -180,7 +261,11 @@ impl Cartridge {
             return;
         }
         if let Some(i) = self.ram_addr(addr) {
-            self.ram[i] = val;
+            if matches!(self.mapper, Mapper::Mbc2 { .. }) {
+                self.ram[i] = 0xF0 | (val & 0x0F);
+            } else {
+                self.ram[i] = val;
+            }
         }
     }
 }

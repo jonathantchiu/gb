@@ -14,6 +14,9 @@ pub struct Bus {
     pub hram: [u8; 0x7F],
     pub ie: u8,
     pub if_reg: u8,
+    pub dma_reg: u8,
+    dma_active: Option<(u8, u8)>,
+    dma_pending: Option<(u8, u8)>,
 }
 
 impl Bus {
@@ -28,35 +31,81 @@ impl Bus {
             hram: [0; 0x7F],
             ie: 0,
             if_reg: 0xE1,
+            dma_reg: 0xFF,
+            dma_active: None,
+            dma_pending: None,
         }
     }
 
     pub fn tick_mcycle(&mut self) {
+        self.tick_dma();
         for _ in 0..4 {
             self.timer.tick(&mut self.if_reg);
             self.ppu.tick(&mut self.if_reg);
         }
     }
 
+    fn tick_dma(&mut self) {
+        if let Some((src, idx)) = self.dma_active {
+            if idx < 0xA0 {
+                let addr = ((src as u16) << 8) | idx as u16;
+                let byte = self.dma_read8(addr);
+                self.ppu.oam[idx as usize] = byte;
+                self.dma_active = Some((src, idx + 1));
+            } else {
+                self.dma_active = None;
+            }
+        }
+        if let Some((src, delay)) = self.dma_pending {
+            if delay <= 1 {
+                self.dma_pending = None;
+                let addr = (src as u16) << 8;
+                let byte = self.dma_read8(addr);
+                self.ppu.oam[0] = byte;
+                self.dma_active = Some((src, 1));
+            } else {
+                self.dma_pending = Some((src, delay - 1));
+            }
+        }
+    }
+
+    fn dma_read8(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x7FFF => self.cart.read_rom(addr),
+            0x8000..=0x9FFF => self.ppu.vram[addr as usize - 0x8000],
+            0xA000..=0xBFFF => self.cart.read_ram(addr),
+            0xC000..=0xFFFF => self.wram[(addr as usize - 0xC000) & 0x1FFF],
+        }
+    }
+
+    pub fn is_oam_dma_active(&self) -> bool {
+        self.dma_active.is_some()
+    }
+
     pub fn read8(&mut self, addr: u16) -> u8 {
-        let v = self.peek8(addr);
         self.tick_mcycle();
-        v
+        self.peek8(addr)
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
-        self.poke8(addr, val);
         self.tick_mcycle();
+        self.poke8(addr, val);
     }
 
     pub fn peek8(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.cart.read_rom(addr),
-            0x8000..=0x9FFF => self.ppu.vram[addr as usize - 0x8000],
+            0x8000..=0x9FFF => self.ppu.read_vram(addr - 0x8000),
             0xA000..=0xBFFF => self.cart.read_ram(addr),
             0xC000..=0xDFFF => self.wram[addr as usize - 0xC000],
             0xE000..=0xFDFF => self.wram[addr as usize - 0xE000],
-            0xFE00..=0xFE9F => self.ppu.oam[addr as usize - 0xFE00],
+            0xFE00..=0xFE9F => {
+                if self.dma_active.is_some() {
+                    0xFF
+                } else {
+                    self.ppu.read_oam(addr - 0xFE00)
+                }
+            }
             0xFEA0..=0xFEFF => 0xFF,
             0xFF00 => self.joypad.read(),
             0xFF01 => self.serial.sb,
@@ -72,7 +121,7 @@ impl Bus {
             0xFF43 => self.ppu.scx,
             0xFF44 => self.ppu.ly,
             0xFF45 => self.ppu.lyc,
-            0xFF46 => 0xFF,
+            0xFF46 => self.dma_reg,
             0xFF47 => self.ppu.bgp,
             0xFF48 => self.ppu.obp0,
             0xFF49 => self.ppu.obp1,
@@ -87,11 +136,15 @@ impl Bus {
     pub fn poke8(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x7FFF => self.cart.write_rom(addr, val),
-            0x8000..=0x9FFF => self.ppu.vram[addr as usize - 0x8000] = val,
+            0x8000..=0x9FFF => self.ppu.write_vram(addr - 0x8000, val),
             0xA000..=0xBFFF => self.cart.write_ram(addr, val),
             0xC000..=0xDFFF => self.wram[addr as usize - 0xC000] = val,
             0xE000..=0xFDFF => self.wram[addr as usize - 0xE000] = val,
-            0xFE00..=0xFE9F => self.ppu.oam[addr as usize - 0xFE00] = val,
+            0xFE00..=0xFE9F => {
+                if self.dma_active.is_none() {
+                    self.ppu.write_oam(addr - 0xFE00, val);
+                }
+            }
             0xFEA0..=0xFEFF => {}
             0xFF00 => self.joypad.write(val),
             0xFF01 => self.serial.sb = val,
@@ -105,21 +158,24 @@ impl Bus {
                 self.timer.write_div(&mut if_reg);
                 self.if_reg = if_reg;
             }
-            0xFF05 => self.timer.tima = val,
-            0xFF06 => self.timer.tma = val,
+            0xFF05 => self.timer.write_tima(val),
+            0xFF06 => self.timer.write_tma(val),
             0xFF07 => {
                 let mut if_reg = self.if_reg;
                 self.timer.write_tac(val, &mut if_reg);
                 self.if_reg = if_reg;
             }
             0xFF0F => self.if_reg = val | 0xE0,
-            0xFF40 => self.ppu.write_lcdc(val),
-            0xFF41 => self.ppu.write_stat(val),
+            0xFF40 => self.ppu.write_lcdc(val, &mut self.if_reg),
+            0xFF41 => self.ppu.write_stat(val, &mut self.if_reg),
             0xFF42 => self.ppu.scy = val,
             0xFF43 => self.ppu.scx = val,
             0xFF44 => self.ppu.write_ly(),
-            0xFF45 => self.ppu.lyc = val,
-            0xFF46 => self.oam_dma(val),
+            0xFF45 => self.ppu.write_lyc(val, &mut self.if_reg),
+            0xFF46 => {
+                self.dma_reg = val;
+                self.dma_pending = Some((val, 2));
+            }
             0xFF47 => self.ppu.bgp = val,
             0xFF48 => self.ppu.obp0 = val,
             0xFF49 => self.ppu.obp1 = val,
@@ -128,14 +184,6 @@ impl Bus {
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
             0xFFFF => self.ie = val,
             _ => {}
-        }
-    }
-
-    fn oam_dma(&mut self, val: u8) {
-        let src = (val as u16) << 8;
-        for i in 0..0xA0u16 {
-            let b = self.peek8(src.wrapping_add(i));
-            self.ppu.oam[i as usize] = b;
         }
     }
 
