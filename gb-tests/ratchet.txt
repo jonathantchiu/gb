@@ -1,6 +1,9 @@
-# status  rom (relative to gb-tests/roms/)
-# The suite asserts reality matches this file. Flip a line to `pass` in the
-# same commit that makes it pass; a newly-failing ROM fails the build.
+# Pass-rate ratchet. One line per ROM: `<pass|fail> <path under gb-tests/roms/>`.
+# `cargo test -p gb-tests` asserts reality matches this file exactly, so a
+# regression fails the build, and so does a new pass that hasn't been recorded.
+# Record progress with: cargo run -p gb-tests --release --bin ratchet -- --update
+# Oracle is chosen by directory: mooneye/ = LD B,B register fingerprint,
+# everything else = blargg serial text or cart-RAM signature.
 pass cpu_instrs/individual/01-special.gb
 pass cpu_instrs/individual/02-interrupts.gb
 pass cpu_instrs/individual/03-op sp,hl.gb
@@ -19,31 +22,28 @@ pass mem_timing/individual/03-modify_timing.gb
 pass mem_timing-2/rom_singles/01-read_timing.gb
 pass mem_timing-2/rom_singles/02-write_timing.gb
 pass mem_timing-2/rom_singles/03-modify_timing.gb
-pass halt_bug.gb
-pass mooneye/acceptance/timer/div_write.gb
-pass mooneye/acceptance/timer/rapid_toggle.gb
-pass mooneye/acceptance/timer/tim00.gb
-pass mooneye/acceptance/timer/tim00_div_trigger.gb
-pass mooneye/acceptance/timer/tim01.gb
-pass mooneye/acceptance/timer/tim01_div_trigger.gb
-pass mooneye/acceptance/timer/tim10.gb
-pass mooneye/acceptance/timer/tim10_div_trigger.gb
-pass mooneye/acceptance/timer/tim11.gb
-pass mooneye/acceptance/timer/tim11_div_trigger.gb
-pass mooneye/acceptance/timer/tima_reload.gb
-pass mooneye/acceptance/timer/tima_write_reloading.gb
-pass mooneye/acceptance/timer/tma_write_reloading.gb
+pass cpu_instrs/cpu_instrs.gb
+pass mem_timing-2/mem_timing.gb
+pass mem_timing/mem_timing.gb
 pass mooneye/acceptance/add_sp_e_timing.gb
+pass mooneye/acceptance/bits/mem_oam.gb
+pass mooneye/acceptance/bits/reg_f.gb
+pass mooneye/acceptance/bits/unused_hwio-GS.gb
+pass mooneye/acceptance/boot_div-dmgABCmgb.gb
+fail mooneye/acceptance/boot_hwio-dmgABCmgb.gb
+pass mooneye/acceptance/boot_regs-dmgABC.gb
 pass mooneye/acceptance/call_cc_timing.gb
 pass mooneye/acceptance/call_cc_timing2.gb
 pass mooneye/acceptance/call_timing.gb
 pass mooneye/acceptance/call_timing2.gb
+pass mooneye/acceptance/di_timing-GS.gb
 pass mooneye/acceptance/div_timing.gb
 pass mooneye/acceptance/ei_sequence.gb
 pass mooneye/acceptance/ei_timing.gb
 pass mooneye/acceptance/halt_ime0_ei.gb
 pass mooneye/acceptance/halt_ime0_nointr_timing.gb
 pass mooneye/acceptance/halt_ime1_timing.gb
+pass mooneye/acceptance/halt_ime1_timing2-GS.gb
 pass mooneye/acceptance/if_ie_registers.gb
 pass mooneye/acceptance/instr/daa.gb
 pass mooneye/acceptance/interrupts/ie_push.gb
@@ -58,6 +58,18 @@ pass mooneye/acceptance/oam_dma_restart.gb
 pass mooneye/acceptance/oam_dma_start.gb
 pass mooneye/acceptance/oam_dma_timing.gb
 pass mooneye/acceptance/pop_timing.gb
+fail mooneye/acceptance/ppu/hblank_ly_scx_timing-GS.gb
+pass mooneye/acceptance/ppu/intr_1_2_timing-GS.gb
+pass mooneye/acceptance/ppu/intr_2_0_timing.gb
+pass mooneye/acceptance/ppu/intr_2_mode0_timing.gb
+fail mooneye/acceptance/ppu/intr_2_mode0_timing_sprites.gb
+pass mooneye/acceptance/ppu/intr_2_mode3_timing.gb
+fail mooneye/acceptance/ppu/intr_2_oam_ok_timing.gb
+fail mooneye/acceptance/ppu/lcdon_timing-GS.gb
+fail mooneye/acceptance/ppu/lcdon_write_timing-GS.gb
+pass mooneye/acceptance/ppu/stat_irq_blocking.gb
+fail mooneye/acceptance/ppu/stat_lyc_onoff.gb
+fail mooneye/acceptance/ppu/vblank_stat_intr-GS.gb
 pass mooneye/acceptance/push_timing.gb
 pass mooneye/acceptance/rapid_di_ei.gb
 pass mooneye/acceptance/ret_cc_timing.gb
@@ -65,6 +77,19 @@ pass mooneye/acceptance/ret_timing.gb
 pass mooneye/acceptance/reti_intr_timing.gb
 pass mooneye/acceptance/reti_timing.gb
 pass mooneye/acceptance/rst_timing.gb
-pass mooneye/acceptance/bits/mem_oam.gb
-pass mooneye/acceptance/bits/reg_f.gb
+pass mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb.gb
+pass mooneye/acceptance/timer/div_write.gb
+pass mooneye/acceptance/timer/rapid_toggle.gb
+pass mooneye/acceptance/timer/tim00.gb
+pass mooneye/acceptance/timer/tim00_div_trigger.gb
+pass mooneye/acceptance/timer/tim01.gb
+pass mooneye/acceptance/timer/tim01_div_trigger.gb
+pass mooneye/acceptance/timer/tim10.gb
+pass mooneye/acceptance/timer/tim10_div_trigger.gb
+pass mooneye/acceptance/timer/tim11.gb
+pass mooneye/acceptance/timer/tim11_div_trigger.gb
+pass mooneye/acceptance/timer/tima_reload.gb
+pass mooneye/acceptance/timer/tima_write_reloading.gb
+pass mooneye/acceptance/timer/tma_write_reloading.gb
 pass dmg-acid2/dmg-acid2.gb
+pass halt_bug.gb

@@ -15,6 +15,7 @@ pub struct Bus {
     pub ie: u8,
     pub if_reg: u8,
     pub dma_reg: u8,
+    pub mcycles: u64,
     dma_active: Option<(u8, u8)>,
     dma_pending: Option<(u8, u8)>,
 }
@@ -32,15 +33,23 @@ impl Bus {
             ie: 0,
             if_reg: 0xE1,
             dma_reg: 0xFF,
+            mcycles: 0,
             dma_active: None,
             dma_pending: None,
         }
     }
 
     pub fn tick_mcycle(&mut self) {
-        self.tick_dma();
+        self.begin_mcycle();
+        self.tick_tcycles();
+    }
+
+    fn tick_tcycles(&mut self) {
         for _ in 0..4 {
+            let old_div = self.timer.div_counter();
             self.timer.tick(&mut self.if_reg);
+            let new_div = self.timer.div_counter();
+            self.serial.tick(old_div, new_div, &mut self.if_reg);
             self.ppu.tick(&mut self.if_reg);
         }
     }
@@ -82,14 +91,23 @@ impl Bus {
         self.dma_active.is_some()
     }
 
+    fn begin_mcycle(&mut self) {
+        self.mcycles += 1;
+        self.timer.begin_mcycle();
+        self.tick_dma();
+    }
+
     pub fn read8(&mut self, addr: u16) -> u8 {
-        self.tick_mcycle();
-        self.peek8(addr)
+        self.begin_mcycle();
+        let v = self.peek8(addr);
+        self.tick_tcycles();
+        v
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
-        self.tick_mcycle();
+        self.begin_mcycle();
         self.poke8(addr, val);
+        self.tick_tcycles();
     }
 
     pub fn peek8(&self, addr: u16) -> u8 {
@@ -148,23 +166,11 @@ impl Bus {
             0xFEA0..=0xFEFF => {}
             0xFF00 => self.joypad.write(val),
             0xFF01 => self.serial.sb = val,
-            0xFF02 => {
-                let mut if_reg = self.if_reg;
-                self.serial.write_sc(val, &mut if_reg);
-                self.if_reg = if_reg;
-            }
-            0xFF04 => {
-                let mut if_reg = self.if_reg;
-                self.timer.write_div(&mut if_reg);
-                self.if_reg = if_reg;
-            }
+            0xFF02 => self.serial.write_sc(val),
+            0xFF04 => self.timer.write_div(),
             0xFF05 => self.timer.write_tima(val),
             0xFF06 => self.timer.write_tma(val),
-            0xFF07 => {
-                let mut if_reg = self.if_reg;
-                self.timer.write_tac(val, &mut if_reg);
-                self.if_reg = if_reg;
-            }
+            0xFF07 => self.timer.write_tac(val),
             0xFF0F => self.if_reg = val | 0xE0,
             0xFF40 => self.ppu.write_lcdc(val, &mut self.if_reg),
             0xFF41 => self.ppu.write_stat(val, &mut self.if_reg),

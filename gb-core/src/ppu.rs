@@ -58,6 +58,7 @@ pub struct Ppu {
     fetch_tile_lo: u8,
     fetch_tile_hi: u8,
     sprite_fetch_dots: u8,
+    initial_stall: u8,
 
     lcd_x: u8,
     scx_discard: u8,
@@ -98,6 +99,7 @@ impl Ppu {
             fetch_tile_lo: 0,
             fetch_tile_hi: 0,
             sprite_fetch_dots: 0,
+            initial_stall: 0,
             lcd_x: 0,
             scx_discard: 0,
             wy_triggered: false,
@@ -237,6 +239,9 @@ impl Ppu {
         self.fetcher_dots = 0;
         self.fetcher_x = 0;
         self.sprite_fetch_dots = 0;
+        // The fetcher's first tile fetch of a line is thrown away and restarted,
+        // which is why mode 3 lasts 172 dots (not 166) for 160 pixels with SCX=0.
+        self.initial_stall = 6;
         self.lcd_x = 0;
         self.scx_discard = self.scx & 7;
         self.window_active_on_line = false;
@@ -379,6 +384,11 @@ impl Ppu {
             self.fetcher_dots = 0;
             self.fetcher_x = 0;
             self.scx_discard = if self.wx < 7 { 7 - self.wx } else { 0 };
+        }
+
+        if self.initial_stall > 0 {
+            self.initial_stall -= 1;
+            return;
         }
 
         // 2. If currently fetching a sprite, advance sprite fetch stall

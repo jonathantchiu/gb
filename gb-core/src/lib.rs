@@ -27,8 +27,12 @@ impl GameBoy {
         }
     }
 
-    pub fn step(&mut self) {
+    /// Executes one instruction (or one interrupt dispatch, or one halted
+    /// M-cycle). Returns the number of M-cycles that elapsed.
+    pub fn step(&mut self) -> u32 {
+        let before = self.bus.mcycles;
         self.cpu.step(&mut self.bus);
+        (self.bus.mcycles - before) as u32
     }
 
     pub fn serial_output(&self) -> &[u8] {
