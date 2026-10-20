@@ -1,0 +1,9 @@
+[package]
+name = "gb-tests"
+description = "ROM test harness and pass-rate ratchet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+gb-core = { path = "../gb-core" }
