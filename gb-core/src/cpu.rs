@@ -317,7 +317,7 @@ impl Cpu {
         }
 
         if self.ime && pending != 0 {
-            self.service_interrupt(bus, pending);
+            self.service_interrupt(bus);
             return;
         }
 
@@ -330,26 +330,36 @@ impl Cpu {
         let op = self.fetch8(bus);
         self.execute(bus, op);
 
-        if was_scheduled {
+        // EI takes effect after the following instruction, unless that
+        // instruction was DI (which clears the schedule).
+        if was_scheduled && self.ime_scheduled {
             self.ime = true;
             self.ime_scheduled = false;
         }
     }
 
-    fn service_interrupt(&mut self, bus: &mut Bus, pending: u8) {
-        let bit = pending.trailing_zeros() as u8;
+    /// Interrupt dispatch: 5 M-cycles. Which interrupt to service is decided
+    /// after the high byte of PC is pushed, so a push that overwrites IE can
+    /// change the target, or cancel dispatch entirely (PC = 0x0000).
+    fn service_interrupt(&mut self, bus: &mut Bus) {
         self.ime = false;
         self.ime_scheduled = false;
         self.halted = false;
-        bus.if_reg &= !(1 << bit);
         bus.tick_mcycle();
         bus.tick_mcycle();
-        self.sp = self.sp.wrapping_sub(1);
         let pc = self.pc;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write8(self.sp, (pc >> 8) as u8);
+        let pending = bus.interrupt_pending();
+        self.pc = if pending == 0 {
+            0x0000
+        } else {
+            let bit = pending.trailing_zeros() as u16;
+            bus.if_reg &= !(1 << bit);
+            0x0040 + 8 * bit
+        };
         self.sp = self.sp.wrapping_sub(1);
         bus.write8(self.sp, pc as u8);
-        self.pc = 0x0040 + 0x0008 * bit as u16;
         bus.tick_mcycle();
     }
 
