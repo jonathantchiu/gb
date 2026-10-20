@@ -5,6 +5,7 @@ const FLAG_N: u8 = 0x40;
 const FLAG_H: u8 = 0x20;
 const FLAG_C: u8 = 0x10;
 
+#[derive(Clone)]
 pub struct Cpu {
     pub a: u8,
     pub f: u8,

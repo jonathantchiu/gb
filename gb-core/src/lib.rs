@@ -13,6 +13,38 @@ use cpu::Cpu;
 pub const SCREEN_W: usize = 160;
 pub const SCREEN_H: usize = 144;
 
+/// T-cycles per second on DMG.
+pub const CLOCK_HZ: u32 = 4_194_304;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Button {
+    Right,
+    Left,
+    Up,
+    Down,
+    A,
+    B,
+    Select,
+    Start,
+}
+
+impl Button {
+    /// (bit index within the P1 nibble, is in the action-button group)
+    fn wiring(self) -> (u8, bool) {
+        match self {
+            Button::Right => (0, false),
+            Button::Left => (1, false),
+            Button::Up => (2, false),
+            Button::Down => (3, false),
+            Button::A => (0, true),
+            Button::B => (1, true),
+            Button::Select => (2, true),
+            Button::Start => (3, true),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct GameBoy {
     pub cpu: Cpu,
     pub bus: Bus,
@@ -45,5 +77,40 @@ impl GameBoy {
 
     pub fn framebuffer(&self) -> &[u8] {
         &self.bus.ppu.framebuffer
+    }
+
+    /// Runs until the PPU finishes the next frame (enters VBlank). With the
+    /// LCD off there are no frames, so fall back to one frame's worth of time.
+    pub fn run_frame(&mut self) {
+        let target = self.bus.ppu.frame_count + 1;
+        let deadline = self.bus.mcycles + 70224 / 4;
+        while self.bus.ppu.frame_count < target && self.bus.mcycles < deadline {
+            self.step();
+        }
+    }
+
+    pub fn set_button(&mut self, button: Button, pressed: bool) {
+        let (bit, group) = button.wiring();
+        if pressed {
+            self.bus.joypad.press(bit, group, &mut self.bus.if_reg);
+        } else {
+            self.bus.joypad.release(bit, group);
+        }
+    }
+
+    pub fn title(&self) -> &str {
+        &self.bus.cart.title
+    }
+
+    pub fn has_battery(&self) -> bool {
+        self.bus.cart.has_battery
+    }
+
+    pub fn save_data(&self) -> Vec<u8> {
+        self.bus.cart.save_data()
+    }
+
+    pub fn load_save_data(&mut self, data: &[u8]) {
+        self.bus.cart.load_save_data(data);
     }
 }

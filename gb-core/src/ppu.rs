@@ -28,6 +28,7 @@ enum FetcherState {
     Push,
 }
 
+#[derive(Clone)]
 pub struct Ppu {
     pub lcdc: u8,
     pub stat: u8,

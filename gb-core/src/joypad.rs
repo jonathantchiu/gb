@@ -1,4 +1,4 @@
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Joypad {
     select: u8,
     buttons: u8,

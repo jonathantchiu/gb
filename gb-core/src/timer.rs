@@ -15,6 +15,7 @@
 /// reload lands at the end of the next one. A DIV/TAC write happens at the
 /// CPU access point, before that M-cycle's T-cycles, so its reload lands at
 /// the end of the same M-cycle. Both are "4 T-cycles after overflow".
+#[derive(Clone)]
 pub struct Timer {
     div_counter: u16,
     pub tima: u8,

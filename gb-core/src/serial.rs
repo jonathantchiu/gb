@@ -5,6 +5,7 @@
 /// With the internal clock selected, one bit is shifted per 8192 Hz serial
 /// clock period, derived from the system counter: on each falling edge of bit 8
 /// of the DIV counter (every 512 T-cycles). A transfer takes 8 such edges.
+#[derive(Clone)]
 pub struct Serial {
     pub sb: u8,
     pub sc: u8,

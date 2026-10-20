@@ -33,6 +33,13 @@ pub trait Mapper {
         Vec::new()
     }
     fn load_extra(&mut self, _data: &[u8]) {}
+    fn box_clone(&self) -> Box<dyn Mapper>;
+}
+
+impl Clone for Box<dyn Mapper> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
 }
 
 fn bank_mask(size: usize, bank_size: usize) -> usize {
@@ -41,11 +48,15 @@ fn bank_mask(size: usize, bank_size: usize) -> usize {
 
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct NoMbc {
     ram_size: usize,
 }
 
 impl Mapper for NoMbc {
+    fn box_clone(&self) -> Box<dyn Mapper> {
+        Box::new(self.clone())
+    }
     fn rom_offset(&self, addr: u16) -> usize {
         addr as usize
     }
@@ -60,6 +71,7 @@ impl Mapper for NoMbc {
 
 /// MBC1. `multicart` selects the MBC1M wiring used by multi-game carts: BANK1
 /// is only 4 bits wide and BANK2 lands on ROM address bit 18 instead of 19.
+#[derive(Clone)]
 pub struct Mbc1 {
     ramg: bool,
     bank1: u8,
@@ -103,6 +115,9 @@ impl Mbc1 {
 }
 
 impl Mapper for Mbc1 {
+    fn box_clone(&self) -> Box<dyn Mapper> {
+        Box::new(self.clone())
+    }
     fn rom_offset(&self, addr: u16) -> usize {
         let bank = if addr < 0x4000 {
             self.low_bank()
@@ -142,6 +157,7 @@ impl Mapper for Mbc1 {
 // ---------------------------------------------------------------------------
 
 /// MBC2: 4-bit ROM bank register, 512 x 4-bit built-in RAM.
+#[derive(Clone)]
 pub struct Mbc2 {
     ramg: bool,
     romb: u8,
@@ -159,6 +175,9 @@ impl Mbc2 {
 }
 
 impl Mapper for Mbc2 {
+    fn box_clone(&self) -> Box<dyn Mapper> {
+        Box::new(self.clone())
+    }
     fn rom_offset(&self, addr: u16) -> usize {
         let bank = if addr < 0x4000 { 0 } else { self.romb as usize };
         ((bank & self.rom_mask) << 14) | (addr as usize & 0x3FFF)
@@ -199,6 +218,7 @@ impl Mapper for Mbc2 {
 /// MBC3 with real-time clock. The RTC is driven by emulated T-cycles rather
 /// than the host clock so the core stays deterministic; the frontend can
 /// fold in elapsed wall time via `load_extra` when restoring a save.
+#[derive(Clone)]
 pub struct Mbc3 {
     ramg: bool,
     romb: u8,
@@ -217,7 +237,7 @@ struct RtcRegs {
     dh: u8,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Rtc {
     live: RtcRegs,
     latched: RtcRegs,
@@ -311,6 +331,9 @@ impl Mbc3 {
 }
 
 impl Mapper for Mbc3 {
+    fn box_clone(&self) -> Box<dyn Mapper> {
+        Box::new(self.clone())
+    }
     fn rom_offset(&self, addr: u16) -> usize {
         let bank = if addr < 0x4000 { 0 } else { self.romb as usize };
         ((bank & self.rom_mask) << 14) | (addr as usize & 0x3FFF)
@@ -391,6 +414,7 @@ impl Mapper for Mbc3 {
 
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct Mbc5 {
     ramg: bool,
     romb: u16,
@@ -412,6 +436,9 @@ impl Mbc5 {
 }
 
 impl Mapper for Mbc5 {
+    fn box_clone(&self) -> Box<dyn Mapper> {
+        Box::new(self.clone())
+    }
     fn rom_offset(&self, addr: u16) -> usize {
         let bank = if addr < 0x4000 { 0 } else { self.romb as usize };
         ((bank & self.rom_mask) << 14) | (addr as usize & 0x3FFF)
@@ -438,6 +465,7 @@ impl Mapper for Mbc5 {
 
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct Cartridge {
     pub rom: Vec<u8>,
     pub ram: Vec<u8>,
