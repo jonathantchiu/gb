@@ -5,9 +5,11 @@
 //!   cargo run -p gb-tests --release --bin ratchet -- timer    # filter by substring
 //!
 //! `--update` only ever records reality; review the diff before committing.
-//! New ROMs found under roms/ are appended.
+//! New ROMs found under roms/ are appended. Not-applicable ROMs are skipped
+//! and excluded from the denominator. Every fail->pass flip must be given a
+//! one-line `; reason` in ratchet.txt (enforced here and in review).
 
-use gb_tests::{load_ratchet, ratchet_path, run_rom, tracked_roms, Status};
+use gb_tests::{budget_for, load_ratchet, ratchet_path, run_rom, tracked_roms, RatchetEntry, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -17,18 +19,20 @@ fn main() {
     let verbose = args.iter().any(|a| a == "-v" || a == "--verbose");
     let filter: Option<&String> = args.iter().find(|a| !a.starts_with('-'));
 
-    let mut entries: Vec<(String, Option<Status>)> = load_ratchet()
-        .into_iter()
-        .map(|e| (e.rom, Some(e.expected)))
-        .collect();
+    let mut entries: Vec<RatchetEntry> = load_ratchet();
     for rom in tracked_roms() {
-        if !entries.iter().any(|(r, _)| *r == rom) {
-            entries.push((rom, None));
+        if !entries.iter().any(|e| e.rom == rom) {
+            entries.push(RatchetEntry {
+                rom,
+                expected: Status::Timeout,
+                reason: None,
+                timeout_mcycles: None,
+            });
         }
     }
 
     let selected: Vec<usize> = (0..entries.len())
-        .filter(|&i| filter.is_none_or(|f| entries[i].0.contains(f.as_str())))
+        .filter(|&i| filter.is_none_or(|f| entries[i].rom.contains(f.as_str())))
         .collect();
 
     let results: Mutex<Vec<Option<(Status, String)>>> = Mutex::new(vec![None; entries.len()]);
@@ -39,33 +43,52 @@ fn main() {
             s.spawn(|| loop {
                 let k = next.fetch_add(1, Ordering::Relaxed);
                 let Some(&i) = selected.get(k) else { break };
-                let r = run_rom(&entries[i].0);
-                results.lock().unwrap()[i] = Some((r.status, format!("[{} M-cycles]\n{}", r.mcycles, r.detail)));
+                let e = &entries[i];
+                if e.expected == Status::NotApplicable {
+                    results.lock().unwrap()[i] = Some((Status::NotApplicable, "skipped".to_string()));
+                    continue;
+                }
+                let r = run_rom(&e.rom, budget_for(e));
+                results.lock().unwrap()[i] = Some((
+                    r.status,
+                    format!("[{} M-cycles, {:#018x}]\n{}", r.mcycles, r.hash, r.detail),
+                ));
             });
         }
     });
     let results = results.into_inner().unwrap();
 
-    let (mut pass, mut total, mut regressions, mut improvements) = (0, 0, 0, 0);
+    let (mut pass, mut applicable, mut regressions, mut improvements, mut new_reason_needed) =
+        (0, 0, 0, 0, 0);
     for &i in &selected {
-        let (rom, expected) = &entries[i];
+        let entry = &entries[i];
+        let rom = &entry.rom;
+        let expected = Some(entry.expected);
         let (actual, detail) = results[i].as_ref().unwrap();
-        total += 1;
-        if *actual == Status::Pass {
-            pass += 1;
+        if *actual != Status::NotApplicable {
+            applicable += 1;
+            if *actual == Status::Pass {
+                pass += 1;
+            }
         }
         let tag = match (expected, actual) {
-            (Some(Status::Pass), Status::Fail) => {
+            (Some(Status::Pass), s) if *s != Status::Pass && *s != Status::NotApplicable => {
                 regressions += 1;
                 "REGRESSED"
             }
-            (Some(Status::Fail) | None, Status::Pass) => {
+            (Some(Status::Fail) | Some(Status::Timeout) | None, Status::Pass) => {
                 improvements += 1;
+                if entry.reason.is_none() {
+                    new_reason_needed += 1;
+                }
                 "NEW PASS"
             }
             (None, Status::Fail) => "new fail",
+            (None, Status::Timeout) => "new timeout",
             (_, Status::Pass) => "pass",
             (_, Status::Fail) => "fail",
+            (_, Status::Timeout) => "timeout",
+            (_, Status::NotApplicable) => "not-applicable",
         };
         println!("{tag:>9}  {rom}");
         if verbose || (*actual == Status::Fail && tag != "fail") {
@@ -75,18 +98,33 @@ fn main() {
         }
     }
     println!(
-        "\n{pass}/{total} passing ({:.1}%), {improvements} newly passing, {regressions} regressed",
-        100.0 * pass as f64 / total.max(1) as f64
+        "\n{pass}/{applicable} passing ({:.1}%), {improvements} newly passing, {regressions} regressed",
+        100.0 * pass as f64 / applicable.max(1) as f64
     );
+    if new_reason_needed > 0 {
+        println!("note: {new_reason_needed} newly-passing ROM(s) need a `; reason` in ratchet.txt");
+    }
 
     if update {
         let mut text = String::from(HEADER);
-        for (i, (rom, expected)) in entries.iter().enumerate() {
+        for (i, entry) in entries.iter().enumerate() {
             let status = match &results[i] {
                 Some((s, _)) => *s,
-                None => expected.unwrap_or(Status::Fail),
+                None => entry.expected,
             };
-            text.push_str(&format!("{} {rom}\n", status.as_str()));
+            // Preserve existing status for ROMs not selected by the filter.
+            let status = if results[i].is_none() { entry.expected } else { status };
+            let mut line = format!("{} {}", status.as_str(), entry.rom);
+            if let Some(t) = entry.timeout_mcycles {
+                line += &format!(" timeout={t}");
+            }
+            if let Some(r) = &entry.reason {
+                line += &format!(" ; {r}");
+            } else if status == Status::Pass && entry.expected != Status::Pass {
+                line += " ; TODO: explain why this passes";
+            }
+            text.push_str(&line);
+            text.push('\n');
         }
         std::fs::write(ratchet_path(), text).unwrap();
         println!("wrote {}", ratchet_path().display());
@@ -98,10 +136,12 @@ fn main() {
 }
 
 const HEADER: &str = "\
-# Pass-rate ratchet. One line per ROM: `<pass|fail> <path under gb-tests/roms/>`.
-# `cargo test -p gb-tests` asserts reality matches this file exactly, so a
-# regression fails the build, and so does a new pass that hasn't been recorded.
+# Pass-rate ratchet. One line per ROM: `<status> <path under gb-tests/roms/> [timeout=<M-cycles>] [; reason]`.
+# Status is one of: pass | fail | not-applicable | timeout.
+# not-applicable = wrong hardware revision or needs the real boot ROM in CI; excluded from the denominator.
+# timeout is distinct from fail: the ROM never reported within its cycle budget.
+# Every fail->pass flip must carry a one-line `; reason` in the same commit.
+# `cargo test -p gb-tests` asserts reality matches this file exactly.
 # Record progress with: cargo run -p gb-tests --release --bin ratchet -- --update
-# Oracle is chosen by directory: mooneye/ = LD B,B register fingerprint,
-# everything else = blargg serial text or cart-RAM signature.
+# Oracle: mooneye/ = LD B,B register fingerprint; dmg-acid2 = framebuffer vs decoded reference PNG; else blargg.
 ";

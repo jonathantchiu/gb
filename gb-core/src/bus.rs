@@ -17,6 +17,10 @@ pub struct Bus {
     pub if_reg: u8,
     pub dma_reg: u8,
     pub mcycles: u64,
+    /// CGB double-speed mode: CPU/timer/serial run at 2x, PPU/APU stay at
+    /// 1x. Always false until the CGB core drives it; the domains are
+    /// separate from the start so phase 8 is not a timing retrofit.
+    pub double_speed: bool,
     dma_active: Option<(u8, u8)>,
     dma_pending: Option<(u8, u8)>,
 }
@@ -35,6 +39,7 @@ impl Bus {
             if_reg: 0xE1,
             dma_reg: 0xFF,
             mcycles: 0,
+            double_speed: false,
             dma_active: None,
             dma_pending: None,
         }
@@ -45,15 +50,39 @@ impl Bus {
         self.tick_tcycles();
     }
 
-    fn tick_tcycles(&mut self) {
-        for _ in 0..4 {
-            let old_div = self.timer.div_counter();
-            self.timer.tick(&mut self.if_reg);
-            let new_div = self.timer.div_counter();
-            self.serial.tick(old_div, new_div, &mut self.if_reg);
-            self.ppu.tick(&mut self.if_reg);
-            self.cart.tick();
+    /// Advances the fast domain by `fast_cycles` T-cycles. The slow domain
+    /// (PPU, APU base clock) advances one step per fast step at 1x, and one
+    /// step per two fast steps in double-speed mode, interleaved so a slow
+    /// step never runs ahead of the fast cycle it is paired with.
+    pub fn tick_system_cycles(&mut self, fast_cycles: u32) {
+        if !self.double_speed {
+            for _ in 0..fast_cycles {
+                self.ppu.tick(&mut self.if_reg);
+                let old_div = self.timer.div_counter();
+                self.timer.tick(&mut self.if_reg);
+                let new_div = self.timer.div_counter();
+                self.serial.tick(old_div, new_div, &mut self.if_reg);
+                self.cart.tick();
+            }
+            return;
         }
+        assert!(fast_cycles % 2 == 0, "double-speed ticks come in pairs");
+        for _ in 0..fast_cycles / 2 {
+            self.ppu.tick(&mut self.if_reg);
+            for _ in 0..2 {
+                let old_div = self.timer.div_counter();
+                self.timer.tick(&mut self.if_reg);
+                let new_div = self.timer.div_counter();
+                self.serial.tick(old_div, new_div, &mut self.if_reg);
+                self.cart.tick();
+            }
+        }
+    }
+
+    fn tick_tcycles(&mut self) {
+        // T-cycle-domain equivalent of the loop above; kept as a name the
+        // CPU-facing API references. Delegates to tick_system_cycles.
+        self.tick_system_cycles(4);
     }
 
     fn tick_dma(&mut self) {
